@@ -6,8 +6,11 @@ class MY_Model extends CI_Model
     public function __construct()
     {
         parent::__construct();
-        if (isset($this->db)) {
-            @$this->db->query("SET SESSION sql_mode=''");
+        if (function_exists('get_instance')) {
+            $ci =& get_instance();
+            if (isset($ci->db)) {
+                @$ci->db->query("SET SESSION sql_mode=''");
+            }
         }
     }
 

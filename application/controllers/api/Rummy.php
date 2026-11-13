@@ -5,6 +5,7 @@ class Rummy extends CI_Controller {
     public function __construct() {
         parent::__construct();
         $this->load->model(['Rummy_model', 'Users_model', 'Setting_model']);
+        @$this->db->query("SET SESSION sql_mode=''");
         header('Content-Type: application/json');
     }
 
@@ -58,15 +59,26 @@ class Rummy extends CI_Controller {
         $boot_value = $this->input->post('boot_value') ?: 80;
         $no_of_players = (int)($this->input->post('no_of_players') ?: 2);
         $tables = $this->Rummy_model->getCustomizeActiveTable($boot_value);
-        $table_id = !empty($tables) ? $tables[0]->rummy_table_id : $this->Rummy_model->CreateTable([
-            'boot_value' => $boot_value,
-            'maximum_blind' => 4,
-            'chaal_limit' => $boot_value,
-            'pot_limit' => $boot_value * 5,
-            'private' => 0,
-            'added_date' => date('Y-m-d H:i:s'),
-            'updated_date' => date('Y-m-d H:i:s')
-        ]);
+        $table_id = 0;
+        if (!empty($tables)) {
+            foreach ($tables as $t) {
+                if (!empty($t->rummy_table_id) && (int)($t->members ?? 0) < 5) {
+                    $table_id = $t->rummy_table_id;
+                    break;
+                }
+            }
+        }
+        if (!$table_id) {
+            $table_id = $this->Rummy_model->CreateTable([
+                'boot_value' => $boot_value,
+                'maximum_blind' => 4,
+                'chaal_limit' => $boot_value,
+                'pot_limit' => $boot_value * 5,
+                'private' => 0,
+                'added_date' => date('Y-m-d H:i:s'),
+                'updated_date' => date('Y-m-d H:i:s')
+            ]);
+        }
         $existing = $this->db->where('table_id', $table_id)->where('user_id', $user_id)->where('isDeleted', 0)->get('tbl_rummy_table_user')->row();
         if (!$existing && $user_id) {
             $seat = $this->Rummy_model->GetSeatOnTable($table_id);

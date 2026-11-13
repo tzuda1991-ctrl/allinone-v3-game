@@ -5,7 +5,30 @@ class Game extends CI_Controller {
     public function __construct() {
         parent::__construct();
         $this->load->model(['Game_model', 'Users_model', 'Setting_model']);
+        @$this->db->query("SET SESSION sql_mode=''");
         header('Content-Type: application/json');
+    }
+
+    private function resolve_table_id($user_id) {
+        $table_id = $this->input->post('table_id');
+        if (!$table_id && $user_id) {
+            $u = $this->Users_model->UserProfile($user_id);
+            if (!empty($u) && !empty($u[0]->table_id)) {
+                $table_id = $u[0]->table_id;
+            }
+        }
+        return $table_id;
+    }
+
+    private function resolve_game_id($user_id, $table_id = 0) {
+        $game_id = $this->input->post('game_id');
+        if ($game_id) return $game_id;
+        if (!$table_id) $table_id = $this->resolve_table_id($user_id);
+        if ($table_id) {
+            $active = $this->Game_model->getActiveGameOnTable($table_id);
+            if ($active) return $active->id;
+        }
+        return 0;
     }
 
     private function seat_bots($table_id, $target_count = 3) {
@@ -116,10 +139,25 @@ class Game extends CI_Controller {
     public function get_table($is_private = 0) {
         $user_id = $this->input->post('user_id');
         $boot_value = $this->input->post('boot_value') ?: 10;
+        if ($user_id) {
+            $u = $this->Users_model->UserProfile($user_id);
+            if (!empty($u) && !empty($u[0]->table_id)) {
+                $this->Game_model->RemoveTableUser(['table_id' => $u[0]->table_id, 'user_id' => $user_id]);
+            }
+        }
         $tables = $is_private ? [] : $this->Game_model->getCustomizeActiveTable($boot_value);
+        $table_id = 0;
         if (!empty($tables)) {
-            $table_id = $tables[0]->id;
-        } else {
+            foreach ($tables as $t) {
+                $tid = isset($t->table_id) ? $t->table_id : (isset($t->id) ? $t->id : 0);
+                $members = isset($t->members) ? (int)$t->members : 0;
+                if ($tid && $members < 5) {
+                    $table_id = $tid;
+                    break;
+                }
+            }
+        }
+        if (!$table_id) {
             $table_id = $this->Game_model->CreateTable([
                 'boot_value' => $boot_value,
                 'maximum_blind' => 4,
@@ -145,16 +183,20 @@ class Game extends CI_Controller {
     public function get_private_table() { $this->get_table(1); }
 
     public function join_table() {
-        $table_id = $this->input->post('table_id');
         $user_id = $this->input->post('user_id');
+        $table_id = $this->resolve_table_id($user_id);
         $this->ensure_user_on_table($table_id, $user_id);
         $this->seat_bots($table_id, 3);
         echo json_encode(['code' => 200, 'message' => 'Joined Table', 'table_data' => [['table_id' => (string)$table_id]]]);
     }
 
     public function start_game() {
-        $table_id = $this->input->post('table_id');
         $user_id = $this->input->post('user_id');
+        $table_id = $this->resolve_table_id($user_id);
+        if (!$table_id) {
+            echo json_encode(['code' => 404, 'message' => 'Table Not Found']);
+            return;
+        }
         if ($user_id) $this->ensure_user_on_table($table_id, $user_id);
         $this->seat_bots($table_id, 3);
 
@@ -205,12 +247,12 @@ class Game extends CI_Controller {
     }
 
     public function status() {
-        $table_id = $this->input->post('table_id');
         $user_id = $this->input->post('user_id');
-        $table = $this->Game_model->isTableAvail($table_id);
+        $table_id = $this->resolve_table_id($user_id);
+        $table = $table_id ? $this->Game_model->isTableAvail($table_id) : null;
         $boot = $table ? $table->boot_value : 10;
-        $table_users = $this->Game_model->TableUser($table_id);
-        $active = $this->Game_model->getActiveGameOnTable($table_id);
+        $table_users = $table_id ? $this->Game_model->TableUser($table_id) : [];
+        $active = $table_id ? $this->Game_model->getActiveGameOnTable($table_id) : null;
 
         $game_id = $active ? $active->id : 0;
         $game_status = '0';
@@ -265,7 +307,7 @@ class Game extends CI_Controller {
                 }
             }
         } else {
-            $all_games = $this->Game_model->getAllGameOnTable($table_id);
+            $all_games = $table_id ? $this->Game_model->getAllGameOnTable($table_id) : [];
             if (!empty($all_games) && (int)$all_games[0]->winner_id > 0 && (time() - strtotime($all_games[0]->updated_date)) <= 10) {
                 $last_g = $all_games[0];
                 $game_id = $last_g->id;
@@ -283,7 +325,7 @@ class Game extends CI_Controller {
             'table_users' => $table_users ?: [],
             'all_users' => $table_users ?: [],
             'table_detail' => json_encode($table ?: ['boot_value' => (string)$boot, 'maximum_blind' => '4', 'chaal_limit' => (string)($boot * 128), 'pot_limit' => (string)($boot * 1024)]),
-            'game_gifts' => $this->Users_model->GiftList($table_id) ?: [],
+            'game_gifts' => $this->Users_model->GiftList($table_id ?: 0) ?: [],
             'game_users' => $game_users ?: [],
             'active_game_id' => (string)$game_id,
             'game_status' => $game_status,
@@ -301,50 +343,68 @@ class Game extends CI_Controller {
     }
 
     public function see_card() {
-        $game_id = $this->input->post('game_id');
         $user_id = $this->input->post('user_id');
-        $cards = $this->Game_model->getMyCards($game_id, $user_id);
+        $game_id = $this->resolve_game_id($user_id);
+        $cards = $game_id ? $this->Game_model->getMyCards($game_id, $user_id) : [];
         echo json_encode(['code' => 200, 'message' => 'Success', 'cards' => $cards ?: []]);
     }
 
     public function chaal() {
-        $game_id = $this->input->post('game_id');
         $user_id = $this->input->post('user_id');
-        $amount = (float)($this->input->post('amount') ?: 10);
-        $this->Game_model->Chaal($game_id, $amount, $user_id);
+        $table_id = $this->resolve_table_id($user_id);
+        $game_id = $this->resolve_game_id($user_id, $table_id);
+        $amount = $this->input->post('amount');
+        if (!$amount && $game_id) {
+            $table = $table_id ? $this->Game_model->isTableAvail($table_id) : null;
+            $boot = $table ? (float)$table->boot_value : 10;
+            $last_log = $this->Game_model->LastChaal($game_id);
+            $base = $last_log ? (float)$last_log->amount : $boot;
+            if ($base <= 0) $base = $boot;
+            $amount = ($this->input->post('plus') === '1') ? ($base * 2) : $base;
+        }
+        if ($game_id) {
+            $this->Game_model->Chaal($game_id, (float)$amount, $user_id);
+        }
         echo json_encode(['code' => 200, 'message' => 'Chaal Played']);
     }
 
     public function pack_game() {
-        $game_id = $this->input->post('game_id');
         $user_id = $this->input->post('user_id');
-        $this->Game_model->PackGame($user_id, $game_id);
-        $game_users = $this->Game_model->GameAllUser($game_id);
-        $unpacked = array_values(array_filter($game_users, function($g) { return (int)$g->packed === 0; }));
-        if (count($unpacked) === 1) {
-            $this->resolve_show_winner($game_id, $unpacked);
+        $game_id = $this->resolve_game_id($user_id);
+        if ($game_id) {
+            $this->Game_model->PackGame($user_id, $game_id);
+            $game_users = $this->Game_model->GameAllUser($game_id);
+            $unpacked = array_values(array_filter($game_users, function($g) { return (int)$g->packed === 0; }));
+            if (count($unpacked) === 1) {
+                $this->resolve_show_winner($game_id, $unpacked);
+            }
         }
         echo json_encode(['code' => 200, 'message' => 'Packed']);
     }
 
     public function show_game() {
-        $game_id = $this->input->post('game_id');
         $user_id = $this->input->post('user_id');
-        $amount = (float)($this->input->post('amount') ?: 10);
-        $this->Game_model->Show($game_id, $amount, $user_id);
-        $game_users = $this->Game_model->GameAllUser($game_id);
-        $unpacked = array_values(array_filter($game_users, function($g) { return (int)$g->packed === 0; }));
-        if (!empty($unpacked)) {
-            $this->resolve_show_winner($game_id, $unpacked);
+        $table_id = $this->resolve_table_id($user_id);
+        $game_id = $this->resolve_game_id($user_id, $table_id);
+        $table = $table_id ? $this->Game_model->isTableAvail($table_id) : null;
+        $boot = $table ? (float)$table->boot_value : 10;
+        $amount = (float)($this->input->post('amount') ?: $boot);
+        if ($game_id) {
+            $this->Game_model->Show($game_id, $amount, $user_id);
+            $game_users = $this->Game_model->GameAllUser($game_id);
+            $unpacked = array_values(array_filter($game_users, function($g) { return (int)$g->packed === 0; }));
+            if (!empty($unpacked)) {
+                $this->resolve_show_winner($game_id, $unpacked);
+            }
         }
         echo json_encode(['code' => 200, 'message' => 'Show Declared']);
     }
 
     public function slide_show() {
-        $game_id = $this->input->post('game_id');
         $user_id = $this->input->post('user_id');
+        $game_id = $this->resolve_game_id($user_id);
         $prev_id = $this->input->post('prev_id') ?: 0;
-        $this->Game_model->SlideShow($game_id, $user_id, $prev_id);
+        if ($game_id) $this->Game_model->SlideShow($game_id, $user_id, $prev_id);
         echo json_encode(['code' => 200, 'message' => 'Slide Show Sent']);
     }
 
@@ -356,8 +416,8 @@ class Game extends CI_Controller {
     }
 
     public function switch_table() {
-        $table_id = $this->input->post('table_id');
         $user_id = $this->input->post('user_id');
+        $table_id = $this->resolve_table_id($user_id);
         if ($table_id && $user_id) {
             $this->Game_model->RemoveTableUser(['table_id' => $table_id, 'user_id' => $user_id]);
         }
@@ -365,9 +425,11 @@ class Game extends CI_Controller {
     }
 
     public function leave_table() {
-        $table_id = $this->input->post('table_id');
         $user_id = $this->input->post('user_id');
-        $this->Game_model->RemoveTableUser(['table_id' => $table_id, 'user_id' => $user_id]);
+        $table_id = $this->resolve_table_id($user_id);
+        if ($table_id && $user_id) {
+            $this->Game_model->RemoveTableUser(['table_id' => $table_id, 'user_id' => $user_id]);
+        }
         echo json_encode(['code' => 200, 'message' => 'Left Table']);
     }
 
