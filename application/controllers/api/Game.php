@@ -152,8 +152,11 @@ class Game extends CI_Controller {
                 $tid = isset($t->table_id) ? $t->table_id : (isset($t->id) ? $t->id : 0);
                 $members = isset($t->members) ? (int)$t->members : 0;
                 if ($tid && $members < 5) {
-                    $table_id = $tid;
-                    break;
+                    $existing_games = $this->Game_model->getAllGameOnTable($tid);
+                    if (empty($existing_games)) {
+                        $table_id = $tid;
+                        break;
+                    }
                 }
             }
         }
@@ -235,8 +238,16 @@ class Game extends CI_Controller {
                 'updated_date' => date('Y-m-d H:i:s')
             ]);
         }
+        $starter_uid = $users[count($users) - 1]->user_id;
+        foreach ($users as $uIdx => $uRow) {
+            if (isset($uRow->user_type) && (int)$uRow->user_type === 0) {
+                $prevIdx = ($uIdx - 1 + count($users)) % count($users);
+                $starter_uid = $users[$prevIdx]->user_id;
+                break;
+            }
+        }
         $this->db->insert('tbl_game_log', [
-            'user_id' => $users[0]->user_id,
+            'user_id' => $starter_uid,
             'game_id' => $game_id,
             'seen' => 0,
             'action' => 0,
@@ -274,7 +285,8 @@ class Game extends CI_Controller {
             if ($chaal_uid !== '0') {
                 $turn_user = $this->Users_model->UserProfile($chaal_uid);
                 $last_ts = $last_log ? strtotime($last_log->added_date) : strtotime($active->added_date);
-                if (!empty($turn_user) && (int)$turn_user[0]->user_type === 1 && (time() - $last_ts) >= 2) {
+                $delay = ($last_log && (int)$last_log->action === 0) ? 4 : 2;
+                if (!empty($turn_user) && (int)$turn_user[0]->user_type === 1 && (time() - $last_ts) >= $delay) {
                     $unpacked = array_values(array_filter($game_users, function($g) { return (int)$g->packed === 0; }));
                     if (count($unpacked) <= 1) {
                         $this->resolve_show_winner($game_id, $unpacked);
@@ -308,7 +320,7 @@ class Game extends CI_Controller {
             }
         } else {
             $all_games = $table_id ? $this->Game_model->getAllGameOnTable($table_id) : [];
-            if (!empty($all_games) && (int)$all_games[0]->winner_id > 0 && (time() - strtotime($all_games[0]->updated_date)) <= 10) {
+            if (!empty($all_games) && (int)$all_games[0]->winner_id > 0 && (time() - strtotime($all_games[0]->updated_date)) <= 5) {
                 $last_g = $all_games[0];
                 $game_id = $last_g->id;
                 $game_status = '2';
@@ -332,10 +344,14 @@ class Game extends CI_Controller {
             'table_amount' => $table_amount,
             'game_amount' => $game_amount,
             'cards' => $cards ?: [],
-            'chaal' => (string)$chaal_uid,
-            'winner_user_id' => (string)$winner_id,
             'slide_show' => $game_id ? $this->Game_model->GetSlideShow($game_id) : []
         ];
+        if ($game_status === '1') {
+            $resp['chaal'] = (string)$chaal_uid;
+        } elseif ($game_status === '2' && $winner_id !== '0') {
+            $resp['chaal'] = '0';
+            $resp['winner_user_id'] = (string)$winner_id;
+        }
         if (!empty($log)) {
             $resp['game_log'] = $log;
         }
