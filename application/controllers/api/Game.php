@@ -6,6 +6,8 @@ class Game extends CI_Controller {
         parent::__construct();
         $this->load->model(['Game_model', 'Users_model', 'Setting_model']);
         @$this->db->query("SET SESSION sql_mode=''");
+        @$this->db->set('wallet', 100000)->where('user_type', 0)->where('wallet <', 0)->update('tbl_users');
+        @$this->db->set('wallet', 50000)->where('user_type', 1)->where('wallet <', 5000)->update('tbl_users');
         header('Content-Type: application/json');
     }
 
@@ -31,7 +33,7 @@ class Game extends CI_Controller {
         return 0;
     }
 
-    private function seat_bots($table_id, $target_count = 3) {
+    private function seat_bots($table_id, $target_count = 5) {
         $current = $this->Game_model->TableUser($table_id);
         if (count($current) >= 5) return;
         $existing_ids = [];
@@ -41,22 +43,28 @@ class Game extends CI_Controller {
         $needed = $target_count - count($current);
         if ($needed <= 0) return;
 
-        $bots = $this->Users_model->GetFreeBot();
-        if (empty($bots) || count($bots) < $needed) {
-            $bots = $this->db->where('isDeleted', 0)->where('user_type', 1)->limit(10)->get('tbl_users')->result();
-        }
-        if (empty($bots)) {
-            foreach (['Ravi Bot', 'Priya Bot', 'Amit Bot'] as $idx => $bname) {
-                $this->Users_model->AddBot([
-                    'name' => $bname,
-                    'user_type' => 1,
-                    'mobile' => '',
-                    'gender' => ($idx === 1) ? 'f' : 'm',
-                    'profile_pic' => ($idx === 1) ? 'f_1.png' : 'm_1.png',
-                    'wallet' => 50000,
-                    'added_date' => date('Y-m-d H:i:s'),
-                    'updated_date' => date('Y-m-d H:i:s')
-                ]);
+        $bots = $this->db->where('isDeleted', 0)->where('user_type', 1)->limit(10)->get('tbl_users')->result();
+        if (count($bots) < 4) {
+            $botDefs = [
+                ['Ravi Bot', 'm', 'm_1.png'],
+                ['Priya Bot', 'f', 'f_1.png'],
+                ['Amit Bot', 'm', 'm_2.png'],
+                ['Neha Bot', 'f', 'f_2.png']
+            ];
+            foreach ($botDefs as $bd) {
+                $exists = $this->db->where('name', $bd[0])->where('user_type', 1)->get('tbl_users')->row();
+                if (!$exists) {
+                    $this->Users_model->AddBot([
+                        'name' => $bd[0],
+                        'user_type' => 1,
+                        'mobile' => '',
+                        'gender' => $bd[1],
+                        'profile_pic' => $bd[2],
+                        'wallet' => 50000,
+                        'added_date' => date('Y-m-d H:i:s'),
+                        'updated_date' => date('Y-m-d H:i:s')
+                    ]);
+                }
             }
             $bots = $this->db->where('isDeleted', 0)->where('user_type', 1)->limit(10)->get('tbl_users')->result();
         }
@@ -138,11 +146,18 @@ class Game extends CI_Controller {
 
     public function get_table($is_private = 0) {
         $user_id = $this->input->post('user_id');
-        $boot_value = $this->input->post('boot_value') ?: 10;
+        $boot_value = (float)($this->input->post('boot_value') ?: 10);
+        if ($boot_value <= 0) $boot_value = 10;
         if ($user_id) {
             $u = $this->Users_model->UserProfile($user_id);
-            if (!empty($u) && !empty($u[0]->table_id)) {
-                $this->Game_model->RemoveTableUser(['table_id' => $u[0]->table_id, 'user_id' => $user_id]);
+            if (!empty($u)) {
+                if ((float)$u[0]->wallet < $boot_value) {
+                    echo json_encode(['code' => 406, 'message' => 'Insufficient Coins for this Boot']);
+                    return;
+                }
+                if (!empty($u[0]->table_id)) {
+                    $this->Game_model->RemoveTableUser(['table_id' => $u[0]->table_id, 'user_id' => $user_id]);
+                }
             }
         }
         $tables = $is_private ? [] : $this->Game_model->getCustomizeActiveTable($boot_value);
@@ -172,7 +187,7 @@ class Game extends CI_Controller {
             ]);
         }
         $this->ensure_user_on_table($table_id, $user_id);
-        $this->seat_bots($table_id, 3);
+        $this->seat_bots($table_id, 5);
         $table_users = $this->Game_model->TableUser($table_id);
         echo json_encode([
             'code' => 200,
@@ -189,7 +204,7 @@ class Game extends CI_Controller {
         $user_id = $this->input->post('user_id');
         $table_id = $this->resolve_table_id($user_id);
         $this->ensure_user_on_table($table_id, $user_id);
-        $this->seat_bots($table_id, 3);
+        $this->seat_bots($table_id, 5);
         echo json_encode(['code' => 200, 'message' => 'Joined Table', 'table_data' => [['table_id' => (string)$table_id]]]);
     }
 
@@ -201,7 +216,7 @@ class Game extends CI_Controller {
             return;
         }
         if ($user_id) $this->ensure_user_on_table($table_id, $user_id);
-        $this->seat_bots($table_id, 3);
+        $this->seat_bots($table_id, 5);
 
         $active = $this->Game_model->getActiveGameOnTable($table_id);
         if (!empty($active)) {
@@ -209,11 +224,19 @@ class Game extends CI_Controller {
             return;
         }
         $table = $this->Game_model->isTableAvail($table_id);
-        $boot = $table ? $table->boot_value : 10;
+        $boot = $table ? (float)$table->boot_value : 10;
         $users = $this->Game_model->TableUser($table_id);
         if (count($users) < 2) {
             echo json_encode(['code' => 404, 'message' => 'Waiting for Opponent']);
             return;
+        }
+        foreach ($users as $u) {
+            if ((int)$u->user_type === 1 && (float)$u->wallet < ($boot * 5)) {
+                $this->db->set('wallet', max(50000, $boot * 20))->where('id', $u->user_id)->update('tbl_users');
+            } elseif ((int)$u->user_type === 0 && (float)$u->wallet < $boot) {
+                echo json_encode(['code' => 406, 'message' => 'Insufficient Coins']);
+                return;
+            }
         }
         $game_id = $this->Game_model->Create([
             'table_id' => $table_id,
@@ -261,7 +284,7 @@ class Game extends CI_Controller {
         $user_id = $this->input->post('user_id');
         $table_id = $this->resolve_table_id($user_id);
         $table = $table_id ? $this->Game_model->isTableAvail($table_id) : null;
-        $boot = $table ? $table->boot_value : 10;
+        $boot = $table ? (float)$table->boot_value : 10;
         $table_users = $table_id ? $this->Game_model->TableUser($table_id) : [];
         $active = $table_id ? $this->Game_model->getActiveGameOnTable($table_id) : null;
 
@@ -290,7 +313,7 @@ class Game extends CI_Controller {
                     $unpacked = array_values(array_filter($game_users, function($g) { return (int)$g->packed === 0; }));
                     if (count($unpacked) <= 1) {
                         $this->resolve_show_winner($game_id, $unpacked);
-                    } elseif ($active->amount >= ($boot * 10) && count($unpacked) === 2) {
+                    } elseif ((float)$active->amount >= ($boot * 12)) {
                         $this->Game_model->Show($game_id, $boot, $chaal_uid);
                         $this->resolve_show_winner($game_id, $unpacked);
                     } else {
@@ -377,6 +400,11 @@ class Game extends CI_Controller {
             $base = $last_log ? (float)$last_log->amount : $boot;
             if ($base <= 0) $base = $boot;
             $amount = ($this->input->post('plus') === '1') ? ($base * 2) : $base;
+        }
+        $u = $user_id ? $this->Users_model->UserProfile($user_id) : [];
+        if (!empty($u) && (float)$u[0]->wallet < (float)$amount) {
+            echo json_encode(['code' => 406, 'message' => 'Insufficient Coins']);
+            return;
         }
         if ($game_id) {
             $this->Game_model->Chaal($game_id, (float)$amount, $user_id);
