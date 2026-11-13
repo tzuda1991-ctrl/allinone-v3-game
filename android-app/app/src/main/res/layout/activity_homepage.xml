@@ -507,34 +507,37 @@
             android:id="@+id/hsv_view"
             android:layout_below="@+id/rltheader"
             android:layout_above="@+id/rltBottom"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
+            android:fillViewport="true"
             android:layout_centerHorizontal="true"
             android:layout_height="wrap_content"
             android:scrollbars="none"
             >
 
             <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="240dp"
-                android:paddingLeft="12dp"
-                android:paddingRight="12dp"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="horizontal"
+                android:paddingLeft="8dp"
+                android:paddingRight="8dp"
                 android:gravity="center"
                 >
 
                 <RelativeLayout
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
                     android:layout_height="wrap_content"
-                    android:layout_marginRight="5dp"
+                    android:layout_marginRight="3dp"
                     android:visibility="visible"
-                    android:layout_marginLeft="@dimen/home_card_left_mar"
+                    android:layout_marginLeft="3dp"
                     
                     android:background="@drawable/casino_game_card_frame"
                     android:padding="5dp">
 
                     <ImageView
                         android:id="@+id/imgpublicGame"
-                        android:layout_width="@dimen/home_card_width"
-                        android:layout_height="@dimen/home_card_height"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
                         android:src="@drawable/home_public_img"
                         android:layout_centerHorizontal="true"
                         />
@@ -574,9 +577,10 @@
 
 
                 <RelativeLayout
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
                     android:layout_height="wrap_content"
-                    android:layout_marginLeft="@dimen/home_card_left_mar"
+                    android:layout_marginLeft="3dp"
                     android:visibility="visible"
 
                     
@@ -593,18 +597,19 @@
 
                     <ImageView
                         android:id="@+id/imgPrivategame"
-                        android:layout_width="@dimen/home_card_width"
-                        android:layout_height="@dimen/home_card_height"
-                        android:layout_marginRight="5dp"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:layout_marginRight="3dp"
                         android:src="@drawable/home_private_table" />
 
                 </RelativeLayout>
 
                 <RelativeLayout
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
                     android:layout_height="wrap_content"
                     android:visibility="visible"
-                    android:layout_marginLeft="@dimen/home_card_left_mar"
+                    android:layout_marginLeft="3dp"
                     
                     android:background="@drawable/casino_game_card_frame"
                     android:padding="5dp">
@@ -619,9 +624,9 @@
 
                     <pl.droidsonroids.gif.GifImageView
                         android:id="@+id/ImgCustomePage"
-                        android:layout_width="@dimen/home_card_width"
-                        android:layout_height="@dimen/home_card_height"
-                        android:layout_marginRight="5dp"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:layout_marginRight="3dp"
                         android:src="@drawable/home_custom_table"
 
                         />
@@ -629,10 +634,11 @@
                 </RelativeLayout>
 
                 <RelativeLayout
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
                     android:layout_height="wrap_content"
                     android:visibility="visible"
-                    android:layout_marginLeft="@dimen/home_card_left_mar"
+                    android:layout_marginLeft="3dp"
                     
                     android:background="@drawable/casino_game_card_frame"
                     android:padding="5dp">
@@ -647,18 +653,19 @@
 
                     <pl.droidsonroids.gif.GifImageView
                         android:id="@+id/ImgVariationGane"
-                        android:layout_width="@dimen/home_card_width"
-                        android:layout_height="@dimen/home_card_height"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
                         android:src="@drawable/home_rummy"
-                        android:layout_marginRight="5dp"/>
+                        android:layout_marginRight="3dp"/>
 
                 </RelativeLayout>
 
 
                 <RelativeLayout
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
                     android:layout_height="wrap_content"
-                    android:layout_marginLeft="@dimen/home_card_left_mar"
+                    android:layout_marginLeft="3dp"
                     android:visibility="visible"
                     
                     android:background="@drawable/casino_game_card_frame"
@@ -673,9 +680,9 @@
 
                     <pl.droidsonroids.gif.GifImageView
                         android:id="@+id/iv_andher"
-                        android:layout_width="@dimen/home_card_width"
-                        android:layout_height="@dimen/home_card_height"
-                        android:layout_marginRight="5dp"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:layout_marginRight="3dp"
                         android:src="@drawable/home_andherbahar"
                         android:layout_centerHorizontal="true"
                         />
