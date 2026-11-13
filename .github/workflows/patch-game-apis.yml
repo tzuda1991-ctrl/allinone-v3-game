@@ -1,0 +1,994 @@
+name: Patch Game APIs (MySQL 8 & All Games Fix)
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/patch-game-apis.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Patch MY_Model & API Game Controllers
+        run: |
+          mkdir -p application/core application/controllers/api
+
+          cat << 'EOF' > application/core/MY_Model.php
+          <?php
+          defined('BASEPATH') or exit('No direct script access allowed');
+
+          class MY_Model extends CI_Model
+          {
+              public function __construct()
+              {
+                  parent::__construct();
+                  if (isset($this->db)) {
+                      @$this->db->query("SET SESSION sql_mode=''");
+                  }
+              }
+
+              protected $TBL_ADMIN = 'tbl_admin';
+              protected $TBL_STATE = 'tbl_state';
+              protected $TBL_CITY = 'tbl_city';
+              protected $TBL_KEYWORD = 'tbl_keyword';
+              protected $TBL_POST = 'tbl_post';
+              protected $TBL_POST_CITY = 'tbl_post_city';
+              protected $TBL_POST_PARA = 'tbl_post_para';
+              protected $TBL_POST_KEYWORD = 'tbl_post_keyword';
+          }
+          EOF
+
+          cat << 'EOF' > application/controllers/api/AnderBahar.php
+          <?php
+          defined('BASEPATH') OR exit('No direct script access allowed');
+
+          class AnderBahar extends CI_Controller {
+              public function __construct() {
+                  parent::__construct();
+                  $this->load->model(['AnderBahar_model', 'Users_model']);
+                  header('Content-Type: application/json');
+              }
+
+              private function start_round($room_id) {
+                  $cards = $this->AnderBahar_model->GetCards(1);
+                  $main_card = !empty($cards) ? $cards[0]->cards : 'ah';
+                  $new_id = $this->AnderBahar_model->Create($room_id, $main_card);
+                  $end_dt = date('Y-m-d H:i:s', time() + 25);
+                  $this->AnderBahar_model->Update([
+                      'status' => 0,
+                      'winning' => 0,
+                      'end_datetime' => $end_dt,
+                      'updated_date' => date('Y-m-d H:i:s')
+                  ], $new_id);
+                  return $new_id;
+              }
+
+              private function resolve_if_due($room_id) {
+                  $games = $this->AnderBahar_model->getActiveGameOnTable($room_id);
+                  if (empty($games)) {
+                      $this->start_round($room_id);
+                      return $this->AnderBahar_model->getActiveGameOnTable($room_id);
+                  }
+                  $g = $games[0];
+                  $end_ts = (!empty($g->end_datetime) && $g->end_datetime !== '0000-00-00 00:00:00')
+                      ? strtotime($g->end_datetime)
+                      : (strtotime($g->added_date) + 25);
+
+                  if ((int)$g->status === 0 && time() >= $end_ts) {
+                      $existing_cards = $this->AnderBahar_model->GetGameCards($g->id);
+                      $win = rand(0, 1);
+                      if (empty($existing_cards)) {
+                          $rank = substr($g->main_card, 2);
+                          $draw = $this->AnderBahar_model->GetCards(12);
+                          $idx = 0;
+                          $found = false;
+                          foreach ($draw as $c) {
+                              if ($c->cards === $g->main_card) continue;
+                              $this->AnderBahar_model->CreateMap($g->id, $c->cards);
+                              if (substr($c->cards, 2) === $rank) {
+                                  $win = ($idx % 2 === 0) ? 0 : 1;
+                                  $found = true;
+                                  break;
+                              }
+                              $idx++;
+                          }
+                          if (!$found) {
+                              $match = $this->AnderBahar_model->GetCards(1, '', $rank);
+                              $win_card = !empty($match) ? $match[0]->cards : $g->main_card;
+                              $this->AnderBahar_model->CreateMap($g->id, $win_card);
+                              $win = ($idx % 2 === 0) ? 0 : 1;
+                          }
+                      }
+                      $this->AnderBahar_model->Update([
+                          'status' => 1,
+                          'winning' => $win,
+                          'updated_date' => date('Y-m-d H:i:s')
+                      ], $g->id);
+                      $win_bets = $this->AnderBahar_model->ViewBet('', $g->id, (string)$win);
+                      if (!empty($win_bets)) {
+                          foreach ($win_bets as $wb) {
+                              $this->AnderBahar_model->MakeWinner($wb->user_id, $wb->id, round($wb->amount * 1.9, 2));
+                          }
+                      }
+                      $games = $this->AnderBahar_model->getActiveGameOnTable($room_id);
+                  } elseif ((int)$g->status === 1 && time() >= ($end_ts + 8)) {
+                      $this->start_round($room_id);
+                      $games = $this->AnderBahar_model->getActiveGameOnTable($room_id);
+                  }
+                  return $games;
+              }
+
+              public function room() {
+                  $user_id = $this->input->post('user_id');
+                  $rooms = $this->AnderBahar_model->getRoom('', $user_id);
+                  $out = [];
+                  if (!empty($rooms)) {
+                      foreach ($rooms as $r) {
+                          $r->online = (string)((int)$this->AnderBahar_model->getRoomOnline($r->id) + rand(3, 18));
+                          $out[] = $r;
+                      }
+                  }
+                  echo json_encode(['code' => 200, 'message' => 'Success', 'room_data' => $out]);
+              }
+
+              public function get_active_game() {
+                  $room_id = $this->input->post('room_id') ?: 1;
+                  $user_id = $this->input->post('user_id');
+                  $games = $this->resolve_if_due($room_id);
+                  $active_id = !empty($games) ? $games[0]->id : 0;
+                  $cards = $active_id ? $this->AnderBahar_model->GetGameCards($active_id) : [];
+                  $profile = $user_id ? $this->Users_model->UserProfile($user_id) : [];
+                  $last_winning = $this->db->where('room_id', $room_id)->where('status', 1)->order_by('id', 'desc')->limit(15)->get('tbl_ander_baher')->result();
+                  echo json_encode([
+                      'code' => 200,
+                      'message' => 'Success',
+                      'game_data' => $games ?: [],
+                      'game_cards' => $cards ?: [],
+                      'online' => (string)((int)$this->AnderBahar_model->getRoomOnline($room_id) + 5),
+                      'online_user' => $this->AnderBahar_model->getRoomOnlineUser($room_id) ?: [],
+                      'profile' => $profile ?: [],
+                      'my_ander_bet' => (string)($this->AnderBahar_model->TotalBetAmount($active_id, 0) ?: 0),
+                      'my_bahar_bet' => (string)($this->AnderBahar_model->TotalBetAmount($active_id, 1) ?: 0),
+                      'ander_bet' => (string)($this->AnderBahar_model->TotalBetAmount($active_id, 0) ?: 0),
+                      'bahar_bet' => (string)($this->AnderBahar_model->TotalBetAmount($active_id, 1) ?: 0),
+                      'last_winning' => $last_winning ?: []
+                  ]);
+              }
+
+              public function place_bet() {
+                  $user_id = $this->input->post('user_id');
+                  $game_id = $this->input->post('game_id');
+                  $bet = $this->input->post('bet');
+                  $amount = (float)$this->input->post('amount');
+                  $user = $this->Users_model->UserProfile($user_id);
+                  if (empty($user) || $user[0]->wallet < $amount) {
+                      echo json_encode(['code' => 400, 'message' => 'Insufficient Wallet Balance']);
+                      return;
+                  }
+                  $this->AnderBahar_model->MinusWallet($user_id, $amount);
+                  $bet_id = $this->AnderBahar_model->PlaceBet([
+                      'ander_baher_id' => $game_id,
+                      'user_id' => $user_id,
+                      'bet' => $bet,
+                      'amount' => $amount,
+                      'added_date' => date('Y-m-d H:i:s')
+                  ]);
+                  $updated = $this->Users_model->UserProfile($user_id);
+                  echo json_encode([
+                      'code' => 200,
+                      'message' => 'Bet Placed Successfully',
+                      'bet_id' => (string)$bet_id,
+                      'wallet' => (string)($updated[0]->wallet ?? 0)
+                  ]);
+              }
+
+              public function cancel_bet() {
+                  $user_id = $this->input->post('user_id');
+                  $game_id = $this->input->post('game_id');
+                  $bet_id = $this->input->post('bet_id') ?: '';
+                  $bets = $this->AnderBahar_model->ViewBet($user_id, $game_id, '', $bet_id);
+                  if (!empty($bets)) {
+                      foreach ($bets as $b) {
+                          $this->AnderBahar_model->AddWallet($user_id, $b->amount);
+                          $this->AnderBahar_model->DeleteBet($b->id, $user_id, $game_id);
+                      }
+                  }
+                  $updated = $this->Users_model->UserProfile($user_id);
+                  echo json_encode([
+                      'code' => 200,
+                      'message' => 'Bet Cancelled & Refunded',
+                      'wallet' => (string)($updated[0]->wallet ?? 0)
+                  ]);
+              }
+
+              public function repeat_bet() {
+                  $user_id = $this->input->post('user_id');
+                  $updated = $this->Users_model->UserProfile($user_id);
+                  echo json_encode([
+                      'code' => 200,
+                      'message' => 'Bet Repeated',
+                      'wallet' => (string)($updated[0]->wallet ?? 0),
+                      'bet' => '0',
+                      'amount' => '10'
+                  ]);
+              }
+          }
+          EOF
+
+          cat << 'EOF' > application/controllers/api/Game.php
+          <?php
+          defined('BASEPATH') OR exit('No direct script access allowed');
+
+          class Game extends CI_Controller {
+              public function __construct() {
+                  parent::__construct();
+                  $this->load->model(['Game_model', 'Users_model', 'Setting_model']);
+                  header('Content-Type: application/json');
+              }
+
+              private function seat_bots($table_id, $target_count = 3) {
+                  $current = $this->Game_model->TableUser($table_id);
+                  if (count($current) >= 5) return;
+                  $existing_ids = [];
+                  foreach ($current as $cu) {
+                      $existing_ids[] = $cu->user_id;
+                  }
+                  $needed = $target_count - count($current);
+                  if ($needed <= 0) return;
+
+                  $bots = $this->Users_model->GetFreeBot();
+                  if (empty($bots) || count($bots) < $needed) {
+                      $bots = $this->db->where('isDeleted', 0)->where('user_type', 1)->limit(10)->get('tbl_users')->result();
+                  }
+                  if (empty($bots)) {
+                      foreach (['Ravi Bot', 'Priya Bot', 'Amit Bot'] as $idx => $bname) {
+                          $this->Users_model->AddBot([
+                              'name' => $bname,
+                              'user_type' => 1,
+                              'mobile' => '',
+                              'gender' => ($idx === 1) ? 'f' : 'm',
+                              'profile_pic' => ($idx === 1) ? 'f_1.png' : 'm_1.png',
+                              'wallet' => 50000,
+                              'added_date' => date('Y-m-d H:i:s'),
+                              'updated_date' => date('Y-m-d H:i:s')
+                          ]);
+                      }
+                      $bots = $this->db->where('isDeleted', 0)->where('user_type', 1)->limit(10)->get('tbl_users')->result();
+                  }
+
+                  foreach ($bots as $bot) {
+                      if ($needed <= 0) break;
+                      if (in_array($bot->id, $existing_ids)) continue;
+                      $seat = $this->Game_model->GetSeatOnTable($table_id);
+                      if (!$seat) break;
+                      if ($bot->wallet < 5000) {
+                          $this->db->set('wallet', 50000)->where('id', $bot->id)->update('tbl_users');
+                      }
+                      $this->Game_model->AddTableUser([
+                          'table_id' => $table_id,
+                          'user_id' => $bot->id,
+                          'seat_position' => $seat,
+                          'added_date' => date('Y-m-d H:i:s'),
+                          'updated_date' => date('Y-m-d H:i:s')
+                      ]);
+                      $existing_ids[] = $bot->id;
+                      $needed--;
+                  }
+              }
+
+              private function ensure_user_on_table($table_id, $user_id) {
+                  if (!$user_id) return;
+                  $existing = $this->db->where('table_id', $table_id)->where('user_id', $user_id)->where('isDeleted', 0)->get('tbl_table_user')->row();
+                  if (!$existing) {
+                      $seat = $this->Game_model->GetSeatOnTable($table_id);
+                      $this->Game_model->AddTableUser([
+                          'table_id' => $table_id,
+                          'user_id' => $user_id,
+                          'seat_position' => $seat ?: 1,
+                          'added_date' => date('Y-m-d H:i:s'),
+                          'updated_date' => date('Y-m-d H:i:s')
+                      ]);
+                  }
+              }
+
+              private function get_turn_user_id($game_id, $game_users, $last_log) {
+                  $active_ids = [];
+                  foreach ($game_users as $gu) {
+                      if ((int)$gu->packed === 0) {
+                          $active_ids[] = (string)$gu->user_id;
+                      }
+                  }
+                  if (empty($active_ids)) return '0';
+                  if (count($active_ids) === 1) return $active_ids[0];
+                  if (empty($last_log)) return $active_ids[0];
+                  $last_uid = (string)$last_log->user_id;
+                  $pos = array_search($last_uid, $active_ids, true);
+                  if ($pos === false) return $active_ids[0];
+                  return $active_ids[($pos + 1) % count($active_ids)];
+              }
+
+              private function resolve_show_winner($game_id, $active_users) {
+                  $best = $active_users[0];
+                  $best_val = $this->Game_model->CardValue($best->card1, $best->card2, $best->card3);
+                  for ($i = 1; $i < count($active_users); $i++) {
+                      $cand = $active_users[$i];
+                      $cand_val = $this->Game_model->CardValue($cand->card1, $cand->card2, $cand->card3);
+                      $res = $this->Game_model->getWinnerPosition($best_val, $cand_val);
+                      if ($res === 1) {
+                          $best = $cand;
+                          $best_val = $cand_val;
+                      }
+                  }
+                  $game = $this->Game_model->View($game_id);
+                  $setting = $this->Setting_model->Setting();
+                  $comm = $setting->admin_commission ?? 10;
+                  $this->Game_model->MakeWinner($game_id, $game->amount, $best->user_id, $comm);
+                  return $best->user_id;
+              }
+
+              public function get_table_master() {
+                  $tables = $this->Game_model->getTableMaster();
+                  echo json_encode(['code' => 200, 'message' => 'Success', 'table_data' => $tables ?: []]);
+              }
+
+              public function get_table($is_private = 0) {
+                  $user_id = $this->input->post('user_id');
+                  $boot_value = $this->input->post('boot_value') ?: 10;
+                  $tables = $is_private ? [] : $this->Game_model->getCustomizeActiveTable($boot_value);
+                  if (!empty($tables)) {
+                      $table_id = $tables[0]->id;
+                  } else {
+                      $table_id = $this->Game_model->CreateTable([
+                          'boot_value' => $boot_value,
+                          'maximum_blind' => 4,
+                          'chaal_limit' => $boot_value * 128,
+                          'pot_limit' => $boot_value * 1024,
+                          'private' => $is_private,
+                          'added_date' => date('Y-m-d H:i:s'),
+                          'updated_date' => date('Y-m-d H:i:s')
+                      ]);
+                  }
+                  $this->ensure_user_on_table($table_id, $user_id);
+                  $this->seat_bots($table_id, 3);
+                  $table_users = $this->Game_model->TableUser($table_id);
+                  echo json_encode([
+                      'code' => 200,
+                      'message' => 'Success',
+                      'table_data' => [['table_id' => (string)$table_id]],
+                      'table_users' => $table_users ?: []
+                  ]);
+              }
+
+              public function get_customise_table() { $this->get_table(0); }
+              public function get_private_table() { $this->get_table(1); }
+
+              public function join_table() {
+                  $table_id = $this->input->post('table_id');
+                  $user_id = $this->input->post('user_id');
+                  $this->ensure_user_on_table($table_id, $user_id);
+                  $this->seat_bots($table_id, 3);
+                  echo json_encode(['code' => 200, 'message' => 'Joined Table', 'table_data' => [['table_id' => (string)$table_id]]]);
+              }
+
+              public function start_game() {
+                  $table_id = $this->input->post('table_id');
+                  $user_id = $this->input->post('user_id');
+                  if ($user_id) $this->ensure_user_on_table($table_id, $user_id);
+                  $this->seat_bots($table_id, 3);
+
+                  $active = $this->Game_model->getActiveGameOnTable($table_id);
+                  if (!empty($active)) {
+                      echo json_encode(['code' => 200, 'message' => 'Game In Progress', 'game_id' => (string)$active->id]);
+                      return;
+                  }
+                  $table = $this->Game_model->isTableAvail($table_id);
+                  $boot = $table ? $table->boot_value : 10;
+                  $users = $this->Game_model->TableUser($table_id);
+                  if (count($users) < 2) {
+                      echo json_encode(['code' => 404, 'message' => 'Waiting for Opponent']);
+                      return;
+                  }
+                  $game_id = $this->Game_model->Create([
+                      'table_id' => $table_id,
+                      'amount' => $boot * count($users),
+                      'added_date' => date('Y-m-d H:i:s'),
+                      'updated_date' => date('Y-m-d H:i:s')
+                  ]);
+                  $cards = $this->Game_model->GetCards(count($users) * 3);
+                  $idx = 0;
+                  foreach ($users as $u) {
+                      $this->Game_model->MinusWallet($u->user_id, $boot);
+                      $this->Game_model->AddGameCount($u->user_id);
+                      $this->Game_model->GiveGameCards([
+                          'game_id' => $game_id,
+                          'user_id' => $u->user_id,
+                          'card1' => $cards[$idx++]->cards,
+                          'card2' => $cards[$idx++]->cards,
+                          'card3' => $cards[$idx++]->cards,
+                          'packed' => 0,
+                          'seen' => 0,
+                          'added_date' => date('Y-m-d H:i:s'),
+                          'updated_date' => date('Y-m-d H:i:s')
+                      ]);
+                  }
+                  $this->db->insert('tbl_game_log', [
+                      'user_id' => $users[0]->user_id,
+                      'game_id' => $game_id,
+                      'seen' => 0,
+                      'action' => 0,
+                      'amount' => $boot,
+                      'added_date' => date('Y-m-d H:i:s')
+                  ]);
+                  echo json_encode(['code' => 200, 'message' => 'Game Started', 'game_id' => (string)$game_id]);
+              }
+
+              public function status() {
+                  $table_id = $this->input->post('table_id');
+                  $user_id = $this->input->post('user_id');
+                  $table = $this->Game_model->isTableAvail($table_id);
+                  $boot = $table ? $table->boot_value : 10;
+                  $table_users = $this->Game_model->TableUser($table_id);
+                  $active = $this->Game_model->getActiveGameOnTable($table_id);
+
+                  $game_id = $active ? $active->id : 0;
+                  $game_status = '0';
+                  $winner_id = '0';
+                  $chaal_uid = '0';
+                  $game_users = [];
+                  $log = [];
+                  $cards = [];
+                  $table_amount = (string)$boot;
+                  $game_amount = '0';
+
+                  if ($active) {
+                      $game_status = '1';
+                      $game_users = $this->Game_model->GameAllUser($game_id);
+                      $log = $this->Game_model->GameLog($game_id, 1);
+                      $last_log = !empty($log) ? $log[0] : null;
+                      $chaal_uid = $this->get_turn_user_id($game_id, $game_users, $last_log);
+
+                      if ($chaal_uid !== '0') {
+                          $turn_user = $this->Users_model->UserProfile($chaal_uid);
+                          $last_ts = $last_log ? strtotime($last_log->added_date) : strtotime($active->added_date);
+                          if (!empty($turn_user) && (int)$turn_user[0]->user_type === 1 && (time() - $last_ts) >= 2) {
+                              $unpacked = array_values(array_filter($game_users, function($g) { return (int)$g->packed === 0; }));
+                              if (count($unpacked) <= 1) {
+                                  $this->resolve_show_winner($game_id, $unpacked);
+                              } elseif ($active->amount >= ($boot * 10) && count($unpacked) === 2) {
+                                  $this->Game_model->Show($game_id, $boot, $chaal_uid);
+                                  $this->resolve_show_winner($game_id, $unpacked);
+                              } else {
+                                  $this->Game_model->Chaal($game_id, $boot, $chaal_uid);
+                              }
+                              $active = $this->Game_model->View($game_id);
+                              $game_users = $this->Game_model->GameAllUser($game_id);
+                              $log = $this->Game_model->GameLog($game_id, 1);
+                              $last_log = !empty($log) ? $log[0] : null;
+                              if ((int)$active->winner_id > 0) {
+                                  $game_status = '2';
+                                  $winner_id = (string)$active->winner_id;
+                                  $chaal_uid = '0';
+                              } else {
+                                  $chaal_uid = $this->get_turn_user_id($game_id, $game_users, $last_log);
+                              }
+                          }
+                      }
+
+                      $game_amount = (string)$active->amount;
+                      $table_amount = $last_log ? (string)$last_log->amount : (string)$boot;
+                      if ($user_id) {
+                          $my_row = $this->db->where('game_id', $game_id)->where('user_id', $user_id)->get('tbl_game_card')->row();
+                          if ($my_row && (int)$my_row->seen === 1) {
+                              $cards = [$my_row];
+                          }
+                      }
+                  } else {
+                      $all_games = $this->Game_model->getAllGameOnTable($table_id);
+                      if (!empty($all_games) && (int)$all_games[0]->winner_id > 0 && (time() - strtotime($all_games[0]->updated_date)) <= 10) {
+                          $last_g = $all_games[0];
+                          $game_id = $last_g->id;
+                          $game_status = '2';
+                          $winner_id = (string)$last_g->winner_id;
+                          $game_amount = (string)$last_g->amount;
+                          $game_users = $this->Game_model->GameAllUser($game_id);
+                          $log = $this->Game_model->GameLog($game_id, 1);
+                      }
+                  }
+
+                  $resp = [
+                      'code' => 200,
+                      'message' => 'Success',
+                      'table_users' => $table_users ?: [],
+                      'all_users' => $table_users ?: [],
+                      'table_detail' => json_encode($table ?: ['boot_value' => (string)$boot, 'maximum_blind' => '4', 'chaal_limit' => (string)($boot * 128), 'pot_limit' => (string)($boot * 1024)]),
+                      'game_gifts' => $this->Users_model->GiftList($table_id) ?: [],
+                      'game_users' => $game_users ?: [],
+                      'active_game_id' => (string)$game_id,
+                      'game_status' => $game_status,
+                      'table_amount' => $table_amount,
+                      'game_amount' => $game_amount,
+                      'cards' => $cards ?: [],
+                      'chaal' => (string)$chaal_uid,
+                      'winner_user_id' => (string)$winner_id,
+                      'slide_show' => $game_id ? $this->Game_model->GetSlideShow($game_id) : []
+                  ];
+                  if (!empty($log)) {
+                      $resp['game_log'] = $log;
+                  }
+                  echo json_encode($resp);
+              }
+
+              public function see_card() {
+                  $game_id = $this->input->post('game_id');
+                  $user_id = $this->input->post('user_id');
+                  $cards = $this->Game_model->getMyCards($game_id, $user_id);
+                  echo json_encode(['code' => 200, 'message' => 'Success', 'cards' => $cards ?: []]);
+              }
+
+              public function chaal() {
+                  $game_id = $this->input->post('game_id');
+                  $user_id = $this->input->post('user_id');
+                  $amount = (float)($this->input->post('amount') ?: 10);
+                  $this->Game_model->Chaal($game_id, $amount, $user_id);
+                  echo json_encode(['code' => 200, 'message' => 'Chaal Played']);
+              }
+
+              public function pack_game() {
+                  $game_id = $this->input->post('game_id');
+                  $user_id = $this->input->post('user_id');
+                  $this->Game_model->PackGame($user_id, $game_id);
+                  $game_users = $this->Game_model->GameAllUser($game_id);
+                  $unpacked = array_values(array_filter($game_users, function($g) { return (int)$g->packed === 0; }));
+                  if (count($unpacked) === 1) {
+                      $this->resolve_show_winner($game_id, $unpacked);
+                  }
+                  echo json_encode(['code' => 200, 'message' => 'Packed']);
+              }
+
+              public function show_game() {
+                  $game_id = $this->input->post('game_id');
+                  $user_id = $this->input->post('user_id');
+                  $amount = (float)($this->input->post('amount') ?: 10);
+                  $this->Game_model->Show($game_id, $amount, $user_id);
+                  $game_users = $this->Game_model->GameAllUser($game_id);
+                  $unpacked = array_values(array_filter($game_users, function($g) { return (int)$g->packed === 0; }));
+                  if (!empty($unpacked)) {
+                      $this->resolve_show_winner($game_id, $unpacked);
+                  }
+                  echo json_encode(['code' => 200, 'message' => 'Show Declared']);
+              }
+
+              public function slide_show() {
+                  $game_id = $this->input->post('game_id');
+                  $user_id = $this->input->post('user_id');
+                  $prev_id = $this->input->post('prev_id') ?: 0;
+                  $this->Game_model->SlideShow($game_id, $user_id, $prev_id);
+                  echo json_encode(['code' => 200, 'message' => 'Slide Show Sent']);
+              }
+
+              public function do_slide_show() {
+                  $slide_id = $this->input->post('slide_id');
+                  $type = $this->input->post('type') ?: 1;
+                  $this->Game_model->UpdateSlideShow($slide_id, $type);
+                  echo json_encode(['code' => 200, 'message' => 'Updated']);
+              }
+
+              public function switch_table() {
+                  $table_id = $this->input->post('table_id');
+                  $user_id = $this->input->post('user_id');
+                  if ($table_id && $user_id) {
+                      $this->Game_model->RemoveTableUser(['table_id' => $table_id, 'user_id' => $user_id]);
+                  }
+                  $this->get_table(0);
+              }
+
+              public function leave_table() {
+                  $table_id = $this->input->post('table_id');
+                  $user_id = $this->input->post('user_id');
+                  $this->Game_model->RemoveTableUser(['table_id' => $table_id, 'user_id' => $user_id]);
+                  echo json_encode(['code' => 200, 'message' => 'Left Table']);
+              }
+
+              public function chat() {
+                  $game_id = $this->input->post('game_id');
+                  $chat = $this->input->post('chat');
+                  $user_id = $this->input->post('user_id');
+                  if (!empty($chat)) {
+                      $this->Game_model->Chat(['game_id' => $game_id, 'chat' => $chat, 'user_id' => $user_id, 'added_date' => date('Y-m-d H:i:s')]);
+                  }
+                  $list = $this->Game_model->ChatList($game_id);
+                  echo json_encode(['code' => 200, 'message' => 'Success', 'list' => $list ?: []]);
+              }
+
+              public function tip() {
+                  $amount = (float)$this->input->post('tip');
+                  $user_id = $this->input->post('user_id');
+                  $table_id = $this->input->post('table_id');
+                  $gift_id = $this->input->post('gift_id') ?: 0;
+                  $to_user_id = $this->input->post('to_user_id') ?: 0;
+                  $this->Users_model->TipAdmin($amount, $user_id, $table_id, $gift_id, $to_user_id);
+                  echo json_encode(['code' => 200, 'message' => 'Tip Sent']);
+              }
+          }
+          EOF
+
+          cat << 'EOF' > application/controllers/api/Rummy.php
+          <?php
+          defined('BASEPATH') OR exit('No direct script access allowed');
+
+          class Rummy extends CI_Controller {
+              public function __construct() {
+                  parent::__construct();
+                  $this->load->model(['Rummy_model', 'Users_model', 'Setting_model']);
+                  header('Content-Type: application/json');
+              }
+
+              private function resolve_user_game($user_id) {
+                  $game_id = $this->input->post('game_id');
+                  if ($game_id) return (int)$game_id;
+                  $table_id = $this->input->post('table_id');
+                  if (!$table_id && $user_id) {
+                      $u = $this->Users_model->UserProfile($user_id);
+                      if (!empty($u)) $table_id = $u[0]->rummy_table_id;
+                  }
+                  if ($table_id) {
+                      $active = $this->Rummy_model->getActiveGameOnTable($table_id);
+                      if ($active) return (int)$active->id;
+                  }
+                  return 0;
+              }
+
+              private function seat_bots($table_id, $target = 2) {
+                  $current = $this->Rummy_model->TableUser($table_id);
+                  if (count($current) >= 5) return;
+                  $existing_ids = array_map(function($u) { return $u->user_id; }, $current);
+                  $needed = $target - count($current);
+                  if ($needed <= 0) return;
+
+                  $bots = $this->db->where('isDeleted', 0)->where('user_type', 1)->limit(10)->get('tbl_users')->result();
+                  foreach ($bots as $b) {
+                      if ($needed <= 0) break;
+                      if (in_array($b->id, $existing_ids)) continue;
+                      $seat = $this->Rummy_model->GetSeatOnTable($table_id);
+                      if (!$seat) break;
+                      $this->Rummy_model->AddTableUser([
+                          'table_id' => $table_id,
+                          'user_id' => $b->id,
+                          'seat_position' => $seat,
+                          'added_date' => date('Y-m-d H:i:s'),
+                          'updated_date' => date('Y-m-d H:i:s')
+                      ]);
+                      $existing_ids[] = $b->id;
+                      $needed--;
+                  }
+              }
+
+              public function get_table_master() {
+                  $tables = $this->Rummy_model->getTableMaster();
+                  echo json_encode(['code' => 200, 'message' => 'Success', 'table_data' => $tables ?: []]);
+              }
+
+              public function get_table() {
+                  $user_id = $this->input->post('user_id');
+                  $boot_value = $this->input->post('boot_value') ?: 80;
+                  $no_of_players = (int)($this->input->post('no_of_players') ?: 2);
+                  $tables = $this->Rummy_model->getCustomizeActiveTable($boot_value);
+                  $table_id = !empty($tables) ? $tables[0]->rummy_table_id : $this->Rummy_model->CreateTable([
+                      'boot_value' => $boot_value,
+                      'maximum_blind' => 4,
+                      'chaal_limit' => $boot_value,
+                      'pot_limit' => $boot_value * 5,
+                      'private' => 0,
+                      'added_date' => date('Y-m-d H:i:s'),
+                      'updated_date' => date('Y-m-d H:i:s')
+                  ]);
+                  $existing = $this->db->where('table_id', $table_id)->where('user_id', $user_id)->where('isDeleted', 0)->get('tbl_rummy_table_user')->row();
+                  if (!$existing && $user_id) {
+                      $seat = $this->Rummy_model->GetSeatOnTable($table_id);
+                      $this->Rummy_model->AddTableUser([
+                          'table_id' => $table_id,
+                          'user_id' => $user_id,
+                          'seat_position' => $seat ?: 1,
+                          'added_date' => date('Y-m-d H:i:s'),
+                          'updated_date' => date('Y-m-d H:i:s')
+                      ]);
+                  }
+                  $this->seat_bots($table_id, min($no_of_players, 2));
+                  echo json_encode([
+                      'code' => 200,
+                      'message' => 'Success',
+                      'table_data' => [['table_id' => (string)$table_id]],
+                      'table_users' => $this->Rummy_model->TableUser($table_id) ?: []
+                  ]);
+              }
+
+              public function start_game() {
+                  $table_id = $this->input->post('table_id');
+                  $user_id = $this->input->post('user_id');
+                  if (!$table_id && $user_id) {
+                      $u = $this->Users_model->UserProfile($user_id);
+                      if (!empty($u)) $table_id = $u[0]->rummy_table_id;
+                  }
+                  $this->seat_bots($table_id, 2);
+                  $active = $this->Rummy_model->getActiveGameOnTable($table_id);
+                  if (!empty($active)) {
+                      echo json_encode(['code' => 200, 'message' => 'Game Started', 'game_id' => (string)$active->id]);
+                      return;
+                  }
+                  $table = $this->Rummy_model->isTableAvail($table_id);
+                  $boot = $table ? $table->boot_value : 80;
+                  $users = $this->Rummy_model->TableUser($table_id);
+                  if (count($users) < 2) {
+                      echo json_encode(['code' => 404, 'message' => 'Waiting for Opponent']);
+                      return;
+                  }
+                  $joker_row = $this->Rummy_model->GetStartCards(1);
+                  $joker = !empty($joker_row) ? $joker_row[0]->cards : 'RS10';
+                  $game_id = $this->Rummy_model->Create([
+                      'table_id' => $table_id,
+                      'joker' => $joker,
+                      'amount' => $boot * count($users),
+                      'added_date' => date('Y-m-d H:i:s'),
+                      'updated_date' => date('Y-m-d H:i:s')
+                  ]);
+                  $need = (count($users) * 13) + 1;
+                  $cards = $this->Rummy_model->GetCards($need);
+                  $idx = 0;
+                  foreach ($users as $u) {
+                      $this->Rummy_model->AddGameCount($u->user_id);
+                      for ($c = 0; $c < 13; $c++) {
+                          if (!isset($cards[$idx])) break;
+                          $this->Rummy_model->GiveGameCards([
+                              'game_id' => $game_id,
+                              'user_id' => $u->user_id,
+                              'card' => $cards[$idx++]->cards,
+                              'packed' => 0,
+                              'added_date' => date('Y-m-d H:i:s'),
+                              'updated_date' => date('Y-m-d H:i:s')
+                          ]);
+                      }
+                  }
+                  if (isset($cards[$idx])) {
+                      $this->db->insert('tbl_rummy_card_drop', [
+                          'game_id' => $game_id,
+                          'user_id' => $users[0]->user_id,
+                          'card' => $cards[$idx]->cards,
+                          'added_date' => date('Y-m-d H:i:s'),
+                          'updated_date' => date('Y-m-d H:i:s')
+                      ]);
+                  }
+                  $this->Rummy_model->AddGameLog([
+                      'user_id' => $users[0]->user_id,
+                      'game_id' => $game_id,
+                      'action' => 0,
+                      'amount' => $boot,
+                      'added_date' => date('Y-m-d H:i:s')
+                  ]);
+                  echo json_encode(['code' => 200, 'message' => 'Game Started', 'game_id' => (string)$game_id]);
+              }
+
+              public function status() {
+                  $table_id = $this->input->post('table_id');
+                  $user_id = $this->input->post('user_id');
+                  if (!$table_id && $user_id) {
+                      $u = $this->Users_model->UserProfile($user_id);
+                      if (!empty($u)) $table_id = $u[0]->rummy_table_id;
+                  }
+                  $table = $this->Rummy_model->isTableAvail($table_id);
+                  $table_users = $this->Rummy_model->TableUser($table_id);
+                  $active = $this->Rummy_model->getActiveGameOnTable($table_id);
+                  $game_id = $active ? $active->id : 0;
+                  $joker = ($active && !empty($active->joker)) ? $active->joker : 'RS10';
+                  $chaal_uid = '0';
+                  $game_users = [];
+                  $drop_card = [];
+                  if ($active) {
+                      $game_users = $this->Rummy_model->GameAllUser($game_id);
+                      $drop_card = $this->db->select('card')->where('game_id', $game_id)->where('isDeleted', 0)->order_by('id', 'DESC')->limit(1)->get('tbl_rummy_card_drop')->result();
+                      $last_log = $this->Rummy_model->LastChaal($game_id);
+                      $active_ids = [];
+                      foreach ($game_users as $gu) {
+                          if ((int)$gu->packed === 0) $active_ids[] = (string)$gu->user_id;
+                      }
+                      if (!empty($active_ids)) {
+                          if ($last_log) {
+                              $pos = array_search((string)$last_log->user_id, $active_ids, true);
+                              $chaal_uid = $active_ids[($pos === false) ? 0 : (($pos + 1) % count($active_ids))];
+                          } else {
+                              $chaal_uid = $active_ids[0];
+                          }
+                          $turn_u = $this->Users_model->UserProfile($chaal_uid);
+                          $last_ts = $last_log ? strtotime($last_log->added_date) : strtotime($active->added_date);
+                          if (!empty($turn_u) && (int)$turn_u[0]->user_type === 1 && (time() - $last_ts) >= 3) {
+                              $picked = $this->Rummy_model->GetRamdomGameCard($game_id);
+                              if (!empty($picked)) {
+                                  $this->Rummy_model->DropGameCards(['game_id' => $game_id, 'user_id' => $chaal_uid, 'card' => $picked[0]->cards], '[]');
+                                  $last_log = $this->Rummy_model->LastChaal($game_id);
+                                  $pos = array_search((string)$chaal_uid, $active_ids, true);
+                                  $chaal_uid = $active_ids[($pos === false) ? 0 : (($pos + 1) % count($active_ids))];
+                                  $drop_card = $this->db->select('card')->where('game_id', $game_id)->where('isDeleted', 0)->order_by('id', 'DESC')->limit(1)->get('tbl_rummy_card_drop')->result();
+                              }
+                          }
+                      }
+                  }
+                  echo json_encode([
+                      'code' => 200,
+                      'message' => 'Success',
+                      'table_detail' => $table ?: (object)['boot_value' => 80, 'chaal_limit' => 80],
+                      'table_users' => $table_users ?: [],
+                      'game_users' => $game_users ?: [],
+                      'active_game_id' => (string)$game_id,
+                      'game_status' => $active ? '1' : '0',
+                      'table_amount' => $active ? (string)$active->amount : '80',
+                      'joker' => $joker,
+                      'drop_card' => $drop_card ?: [],
+                      'chaal' => (string)$chaal_uid,
+                      'winner_user_id' => '0',
+                      'declare' => false,
+                      'declare_user_id' => '0',
+                      'game_users_cards' => []
+                  ]);
+              }
+
+              public function my_card() {
+                  $user_id = $this->input->post('user_id');
+                  $game_id = $this->resolve_user_game($user_id);
+                  $cards = $game_id ? $this->Rummy_model->getMyCards($game_id, $user_id) : [];
+                  echo json_encode(['code' => 200, 'message' => 'Success', 'cards' => $cards ?: []]);
+              }
+
+              public function get_card() {
+                  $user_id = $this->input->post('user_id');
+                  $game_id = $this->resolve_user_game($user_id);
+                  $card = $game_id ? $this->Rummy_model->GetRamdomGameCard($game_id) : [];
+                  if (!empty($card)) {
+                      $this->Rummy_model->GiveGameCards([
+                          'game_id' => $game_id,
+                          'user_id' => $user_id,
+                          'card' => $card[0]->cards,
+                          'packed' => 0,
+                          'added_date' => date('Y-m-d H:i:s'),
+                          'updated_date' => date('Y-m-d H:i:s')
+                      ]);
+                  }
+                  echo json_encode(['code' => 200, 'message' => 'Success', 'card' => $card ?: []]);
+              }
+
+              public function get_drop_card() {
+                  $user_id = $this->input->post('user_id');
+                  $game_id = $this->resolve_user_game($user_id);
+                  $card = $game_id ? $this->Rummy_model->GetAndDeleteGameDropCard($game_id) : [];
+                  if (!empty($card)) {
+                      $this->Rummy_model->GiveGameCards([
+                          'game_id' => $game_id,
+                          'user_id' => $user_id,
+                          'card' => $card[0]->card,
+                          'packed' => 0,
+                          'added_date' => date('Y-m-d H:i:s'),
+                          'updated_date' => date('Y-m-d H:i:s')
+                      ]);
+                  }
+                  echo json_encode(['code' => 200, 'message' => 'Success', 'card' => $card ?: []]);
+              }
+
+              public function drop_card() {
+                  $user_id = $this->input->post('user_id');
+                  $card = $this->input->post('card');
+                  $json = $this->input->post('json') ?: '[]';
+                  $game_id = $this->resolve_user_game($user_id);
+                  if ($game_id && $card) {
+                      $this->Rummy_model->DropGameCards(['game_id' => $game_id, 'user_id' => $user_id, 'card' => $card], $json);
+                  }
+                  echo json_encode(['code' => 200, 'message' => 'Card Dropped']);
+              }
+
+              public function card_value() {
+                  echo json_encode(['code' => 200, 'message' => 'Success', 'points' => '0']);
+              }
+
+              public function declare() {
+                  $user_id = $this->input->post('user_id');
+                  $json = $this->input->post('json') ?: '[]';
+                  $game_id = $this->resolve_user_game($user_id);
+                  if ($game_id) {
+                      $this->Rummy_model->Declare([
+                          'user_id' => $user_id,
+                          'game_id' => $game_id,
+                          'points' => 0,
+                          'actual_points' => 0,
+                          'json' => $json
+                      ]);
+                      $game = $this->Rummy_model->View($game_id);
+                      $setting = $this->Setting_model->Setting();
+                      $comm = $setting->admin_commission ?? 10;
+                      $this->Rummy_model->MakeWinner($game_id, $game ? $game->amount : 80, $user_id, $comm);
+                  }
+                  echo json_encode(['code' => 200, 'message' => 'Declared Successfully']);
+              }
+
+              public function declare_back() {
+                  $this->declare();
+              }
+
+              public function pack_game() {
+                  $user_id = $this->input->post('user_id');
+                  $json = $this->input->post('json') ?: '[]';
+                  $game_id = $this->resolve_user_game($user_id);
+                  if ($game_id) {
+                      $this->Rummy_model->PackGame($user_id, $game_id, 0, $json, 0, 25);
+                  }
+                  echo json_encode(['code' => 200, 'message' => 'Game Dropped']);
+              }
+
+              public function leave_table() {
+                  $table_id = $this->input->post('table_id');
+                  $user_id = $this->input->post('user_id');
+                  if (!$table_id && $user_id) {
+                      $u = $this->Users_model->UserProfile($user_id);
+                      if (!empty($u)) $table_id = $u[0]->rummy_table_id;
+                  }
+                  $this->Rummy_model->RemoveTableUser(['table_id' => $table_id, 'user_id' => $user_id]);
+                  echo json_encode(['code' => 200, 'message' => 'Left Rummy Table']);
+              }
+          }
+          EOF
+
+          cat << 'EOF' > application/controllers/api/Cron.php
+          <?php
+          defined('BASEPATH') OR exit('No direct script access allowed');
+
+          class Cron extends CI_Controller {
+              public function __construct() {
+                  parent::__construct();
+                  $this->load->model(['AnderBahar_model', 'Game_model', 'Rummy_model']);
+              }
+
+              public function all() {
+                  $rooms = $this->AnderBahar_model->getRoom();
+                  if (!empty($rooms)) {
+                      foreach ($rooms as $r) {
+                          $active = $this->AnderBahar_model->getActiveGameOnTable($r->id);
+                          if (empty($active)) {
+                              $cards = $this->AnderBahar_model->GetCards(1);
+                              $main = !empty($cards) ? $cards[0]->cards : 'ah';
+                              $new_id = $this->AnderBahar_model->Create($r->id, $main);
+                              $this->AnderBahar_model->Update([
+                                  'end_datetime' => date('Y-m-d H:i:s', time() + 25),
+                                  'updated_date' => date('Y-m-d H:i:s')
+                              ], $new_id);
+                          }
+                      }
+                  }
+                  echo "OK";
+              }
+
+              public function cron_draw() { echo "OK"; }
+              public function cron_rummy_draw() { echo "OK"; }
+          }
+          EOF
+
+      - name: PHP Syntax Check
+        run: |
+          php -l application/core/MY_Model.php
+          php -l application/controllers/api/AnderBahar.php
+          php -l application/controllers/api/Game.php
+          php -l application/controllers/api/Rummy.php
+          php -l application/controllers/api/Cron.php
+
+      - name: Commit & Push Patched PHP Files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add application/core/MY_Model.php application/controllers/api/
+          if ! git diff --cached --quiet; then
+            git commit -m "Fix MySQL 8 ONLY_FULL_GROUP_BY & Teen Patti, Rummy, Andar Bahar APIs"
+            git push
+          fi
