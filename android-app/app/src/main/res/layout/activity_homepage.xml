@@ -503,9 +503,25 @@
 
         </RelativeLayout>
 
+        <TextView
+            android:id="@+id/casino_lobby_title"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_below="@id/rltheader"
+            android:layout_centerHorizontal="true"
+            android:gravity="center"
+            android:paddingLeft="28dp"
+            android:paddingRight="28dp"
+            android:background="@drawable/casino_title_plate"
+            android:text="♠  ALL IN ONE CASINO  ♥"
+            android:textColor="#FFE0A0"
+            android:textStyle="bold"
+            android:textSize="20sp"
+            android:letterSpacing="0.07" />
+
         <HorizontalScrollView
             android:id="@+id/hsv_view"
-            android:layout_below="@+id/rltheader"
+            android:layout_below="@id/casino_lobby_title"
             android:layout_above="@+id/rltBottom"
             android:layout_width="match_parent"
             android:fillViewport="true"
