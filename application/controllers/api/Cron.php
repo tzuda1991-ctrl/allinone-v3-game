@@ -15,7 +15,11 @@ class Cron extends CI_Controller {
                 if (empty($active)) {
                     $cards = $this->AnderBahar_model->GetCards(1);
                     $main = !empty($cards) ? $cards[0]->cards : 'ah';
-                    $this->AnderBahar_model->Create($r->id, $main);
+                    $new_id = $this->AnderBahar_model->Create($r->id, $main);
+                    $this->AnderBahar_model->Update([
+                        'end_datetime' => date('Y-m-d H:i:s', time() + 25),
+                        'updated_date' => date('Y-m-d H:i:s')
+                    ], $new_id);
                 }
             }
         }

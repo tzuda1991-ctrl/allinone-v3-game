@@ -6,7 +6,11 @@ class MY_Model extends CI_Model
     public function __construct()
     {
         parent::__construct();
+        if (isset($this->db)) {
+            @$this->db->query("SET SESSION sql_mode=''");
+        }
     }
+
     protected $TBL_ADMIN = 'tbl_admin';
     protected $TBL_STATE = 'tbl_state';
     protected $TBL_CITY = 'tbl_city';
