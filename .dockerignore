@@ -1,0 +1,4 @@
+android-app/
+.git/
+.github/
+node_modules/
