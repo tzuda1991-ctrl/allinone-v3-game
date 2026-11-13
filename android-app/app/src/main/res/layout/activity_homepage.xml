@@ -527,11 +527,11 @@
                     android:layout_width="0dp"
                     android:layout_weight="1"
                     android:layout_height="wrap_content"
-                    android:layout_marginRight="3dp"
+                    android:layout_marginRight="5dp"
                     android:visibility="visible"
-                    android:layout_marginLeft="3dp"
+                    android:layout_marginLeft="5dp"
                     
-                    android:background="@drawable/casino_game_card_frame"
+                    android:background="@drawable/casino_card_gold"
                     android:padding="5dp">
 
                     <ImageView
@@ -541,6 +541,19 @@
                         android:src="@drawable/home_public_img"
                         android:layout_centerHorizontal="true"
                         />
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="38dp"
+                        android:layout_alignParentBottom="true"
+                        android:layout_margin="7dp"
+                        android:background="@drawable/casino_play_pill"
+                        android:gravity="center"
+                        android:text="3 PATTI  ›"
+                        android:textColor="#FFF2D5"
+                        android:textStyle="bold"
+                        android:textSize="14sp"
+                        android:clickable="false"
+                        android:focusable="false" />
 
                     <RelativeLayout
                         android:layout_width="match_parent"
@@ -580,11 +593,11 @@
                     android:layout_width="0dp"
                     android:layout_weight="1"
                     android:layout_height="wrap_content"
-                    android:layout_marginLeft="3dp"
+                    android:layout_marginLeft="5dp"
                     android:visibility="visible"
 
                     
-                    android:background="@drawable/casino_game_card_frame"
+                    android:background="@drawable/casino_card_gold"
                     android:padding="5dp">
                     <ImageView
                         android:id="@+id/rlt_circle2"
@@ -599,8 +612,21 @@
                         android:id="@+id/imgPrivategame"
                         android:layout_width="match_parent"
                         android:layout_height="match_parent"
-                        android:layout_marginRight="3dp"
+                        android:layout_marginRight="5dp"
                         android:src="@drawable/home_private_table" />
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="38dp"
+                        android:layout_alignParentBottom="true"
+                        android:layout_margin="7dp"
+                        android:background="@drawable/casino_play_pill"
+                        android:gravity="center"
+                        android:text="PRIVATE TABLE  ›"
+                        android:textColor="#FFF2D5"
+                        android:textStyle="bold"
+                        android:textSize="14sp"
+                        android:clickable="false"
+                        android:focusable="false" />
 
                 </RelativeLayout>
 
@@ -609,9 +635,9 @@
                     android:layout_weight="1"
                     android:layout_height="wrap_content"
                     android:visibility="visible"
-                    android:layout_marginLeft="3dp"
+                    android:layout_marginLeft="5dp"
                     
-                    android:background="@drawable/casino_game_card_frame"
+                    android:background="@drawable/casino_card_gold"
                     android:padding="5dp">
                     <ImageView
                         android:id="@+id/rlt_circle3"
@@ -626,10 +652,23 @@
                         android:id="@+id/ImgCustomePage"
                         android:layout_width="match_parent"
                         android:layout_height="match_parent"
-                        android:layout_marginRight="3dp"
+                        android:layout_marginRight="5dp"
                         android:src="@drawable/home_custom_table"
 
                         />
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="38dp"
+                        android:layout_alignParentBottom="true"
+                        android:layout_margin="7dp"
+                        android:background="@drawable/casino_play_pill"
+                        android:gravity="center"
+                        android:text="CUSTOM BOOT  ›"
+                        android:textColor="#FFF2D5"
+                        android:textStyle="bold"
+                        android:textSize="14sp"
+                        android:clickable="false"
+                        android:focusable="false" />
 
                 </RelativeLayout>
 
@@ -638,9 +677,9 @@
                     android:layout_weight="1"
                     android:layout_height="wrap_content"
                     android:visibility="visible"
-                    android:layout_marginLeft="3dp"
+                    android:layout_marginLeft="5dp"
                     
-                    android:background="@drawable/casino_game_card_frame"
+                    android:background="@drawable/casino_card_gold"
                     android:padding="5dp">
                     <ImageView
                         android:id="@+id/rlt_circle4"
@@ -656,7 +695,20 @@
                         android:layout_width="match_parent"
                         android:layout_height="match_parent"
                         android:src="@drawable/home_rummy"
-                        android:layout_marginRight="3dp"/>
+                        android:layout_marginRight="5dp"/>
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="38dp"
+                        android:layout_alignParentBottom="true"
+                        android:layout_margin="7dp"
+                        android:background="@drawable/casino_play_pill"
+                        android:gravity="center"
+                        android:text="RUMMY  ›"
+                        android:textColor="#FFF2D5"
+                        android:textStyle="bold"
+                        android:textSize="14sp"
+                        android:clickable="false"
+                        android:focusable="false" />
 
                 </RelativeLayout>
 
@@ -665,10 +717,10 @@
                     android:layout_width="0dp"
                     android:layout_weight="1"
                     android:layout_height="wrap_content"
-                    android:layout_marginLeft="3dp"
+                    android:layout_marginLeft="5dp"
                     android:visibility="visible"
                     
-                    android:background="@drawable/casino_game_card_frame"
+                    android:background="@drawable/casino_card_gold"
                     android:padding="5dp">
                     <ImageView
                         android:layout_width="150dp"
@@ -682,10 +734,23 @@
                         android:id="@+id/iv_andher"
                         android:layout_width="match_parent"
                         android:layout_height="match_parent"
-                        android:layout_marginRight="3dp"
+                        android:layout_marginRight="5dp"
                         android:src="@drawable/home_andherbahar"
                         android:layout_centerHorizontal="true"
                         />
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="38dp"
+                        android:layout_alignParentBottom="true"
+                        android:layout_margin="7dp"
+                        android:background="@drawable/casino_play_pill"
+                        android:gravity="center"
+                        android:text="ANDAR BAHAR  ›"
+                        android:textColor="#FFF2D5"
+                        android:textStyle="bold"
+                        android:textSize="14sp"
+                        android:clickable="false"
+                        android:focusable="false" />
                 </RelativeLayout>
 
 
