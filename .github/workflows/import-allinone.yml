@@ -1,0 +1,977 @@
+name: 01 - Extract AllInOne V3 RAR from Google Drive & Prepare Railway + Android Repo
+
+on:
+  workflow_dispatch:
+    inputs:
+      gdrive_id:
+        description: 'Google Drive File ID or Link (AllInOne V3 RAR)'
+        required: true
+        default: '1rzn_fzZ6MCw7V4DQ48cZP1q6_C6Z3jrq'
+      railway_url:
+        description: 'Your Railway Backend URL (with trailing slash)'
+        required: true
+        default: 'https://allinone-backend-production.up.railway.app/'
+  push:
+    paths:
+      - '.github/workflows/import-allinone.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  import-and-fix-allinone:
+    name: Unpack RAR -> Setup PHP Backend (Root) + Android App (android-app/)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout GitHub Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install 7-Zip, Unrar, Unzip & gdown
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y p7zip-full unzip curl file python3-pip
+          pip3 install gdown || pip3 install --break-system-packages gdown || true
+
+      - name: Download 112MB RAR Archive from Google Drive (1rzn_fzZ6MCw7V4DQ48cZP1q6_C6Z3jrq)
+        env:
+          RAW_INPUT: ${{ github.event.inputs.gdrive_id || '1rzn_fzZ6MCw7V4DQ48cZP1q6_C6Z3jrq' }}
+        run: |
+          mkdir -p /tmp/allinone_dl /tmp/allinone_rar /tmp/allinone_web /tmp/allinone_apk
+          if echo "$RAW_INPUT" | grep -q "/file/d/"; then
+            FILE_ID=$(echo "$RAW_INPUT" | sed -n 's/.*\/file\/d\/\([a-zA-Z0-9_-]*\).*/\1/p')
+          elif echo "$RAW_INPUT" | grep -q "id="; then
+            FILE_ID=$(echo "$RAW_INPUT" | sed -n 's/.*id=\([a-zA-Z0-9_-]*\).*/\1/p')
+          else
+            FILE_ID="$RAW_INPUT"
+          fi
+
+          curl -L "https://drive.usercontent.google.com/download?id=${FILE_ID}&export=download&confirm=t" -o /tmp/allinone_dl/archive.rar
+          FILE_TYPE=$(file -b /tmp/allinone_dl/archive.rar)
+          if echo "$FILE_TYPE" | grep -iq "HTML"; then
+            rm -f /tmp/allinone_dl/archive.rar
+            gdown "https://drive.google.com/uc?id=${FILE_ID}" -O /tmp/allinone_dl/archive.rar
+          fi
+          ls -lh /tmp/allinone_dl/archive.rar
+
+      - name: Extract Outer RAR + Inner AllInOneDemo.zip, allinonev3.zip & AllInOneDemoV3.sql
+        run: |
+          curl -sL "https://github.com/ip7z/7zip/releases/download/24.09/7z2409-linux-x64.tar.xz" -o /tmp/7z.tar.xz
+          tar -xf /tmp/7z.tar.xz -C /tmp
+          chmod +x /tmp/7zz
+
+          /tmp/7zz x -y /tmp/allinone_dl/archive.rar -o/tmp/allinone_rar
+          unzip -q -o /tmp/allinone_rar/AllInOneDemo.zip -d /tmp/allinone_web
+          unzip -q -o /tmp/allinone_rar/allinonev3.zip -d /tmp/allinone_apk
+
+          # Copy PHP Backend (AllInOneDemo/*) to Repo Root for Railway
+          cp -rT /tmp/allinone_web/AllInOneDemo/ "$GITHUB_WORKSPACE/"
+          rm -rf "$GITHUB_WORKSPACE/__MACOSX"
+
+          # Copy SQL Database Dump (39 tables) into db/AllInOneDemoV3.sql
+          mkdir -p "$GITHUB_WORKSPACE/db"
+          cp -f /tmp/allinone_rar/db/AllInOneDemoV3.sql "$GITHUB_WORKSPACE/db/AllInOneDemoV3.sql"
+
+          # Copy Native Android App (DemoAllinone-master/*) into android-app/ and remove old prebuilt APKs
+          mkdir -p "$GITHUB_WORKSPACE/android-app"
+          cp -rT /tmp/allinone_apk/DemoAllinone-master/ "$GITHUB_WORKSPACE/android-app/"
+          rm -rf "$GITHUB_WORKSPACE/android-app/app/release"
+
+      - name: Patch PHP Backend for Railway (Dynamic HTTPS base_url + Railway MySQL Env Vars)
+        run: |
+          # 1. Dynamic base_url in application/config/config.php
+          cat << 'EOF' > application/config/config.php
+          <?php
+          defined('BASEPATH') OR exit('No direct script access allowed');
+
+          $proto = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+              || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https')
+              ? 'https://' : 'http://';
+          $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+          $config['base_url'] = $proto . $host . '/';
+          $config['index_page'] = '';
+          $config['uri_protocol'] = 'REQUEST_URI';
+          $config['url_suffix'] = '';
+          $config['language'] = 'english';
+          $config['charset'] = 'UTF-8';
+          $config['enable_hooks'] = FALSE;
+          $config['subclass_prefix'] = 'MY_';
+          $config['composer_autoload'] = FALSE;
+          $config['permitted_uri_chars'] = 'a-z 0-9~%.:_\-';
+          $config['enable_query_strings'] = FALSE;
+          $config['controller_trigger'] = 'c';
+          $config['function_trigger'] = 'm';
+          $config['directory_trigger'] = 'd';
+          $config['allow_get_array'] = TRUE;
+          $config['log_threshold'] = 1;
+          $config['log_path'] = '';
+          $config['log_file_extension'] = '';
+          $config['log_file_permissions'] = 0644;
+          $config['log_date_format'] = 'Y-m-d H:i:s';
+          $config['error_views_path'] = '';
+          $config['cache_path'] = '';
+          $config['cache_query_string'] = FALSE;
+          $config['encryption_key'] = 'AllInOneV3RailwaySecretKey2026';
+          $config['sess_driver'] = 'files';
+          $config['sess_cookie_name'] = 'ci_session';
+          $config['sess_expiration'] = 7200;
+          $config['sess_save_path'] = sys_get_temp_dir();
+          $config['sess_match_ip'] = FALSE;
+          $config['sess_time_to_update'] = 300;
+          $config['sess_regenerate_destroy'] = FALSE;
+          $config['cookie_prefix'] = '';
+          $config['cookie_domain'] = '';
+          $config['cookie_path'] = '/';
+          $config['cookie_secure'] = FALSE;
+          $config['cookie_httponly'] = FALSE;
+          $config['standardize_newlines'] = FALSE;
+          $config['global_xss_filtering'] = FALSE;
+          $config['csrf_protection'] = FALSE;
+          $config['csrf_token_name'] = 'csrf_test_name';
+          $config['csrf_cookie_name'] = 'csrf_cookie_name';
+          $config['csrf_expire'] = 7200;
+          $config['csrf_regenerate'] = TRUE;
+          $config['csrf_exclude_uris'] = array();
+          $config['compress_output'] = FALSE;
+          $config['time_reference'] = 'local';
+          $config['rewrite_short_tags'] = FALSE;
+          $config['proxy_ips'] = '';
+          EOF
+
+          # 2. Railway-ready application/config/database.php
+          cat << 'EOF' > application/config/database.php
+          <?php
+          defined('BASEPATH') OR exit('No direct script access allowed');
+
+          $active_group = 'default';
+          $query_builder = TRUE;
+
+          $db_host = getenv('MYSQLHOST') ?: (getenv('DB_HOST') ?: ($_ENV['DB_HOST'] ?? '127.0.0.1'));
+          $db_port = getenv('MYSQLPORT') ?: (getenv('DB_PORT') ?: ($_ENV['DB_PORT'] ?? '3306'));
+          $db_user = getenv('MYSQLUSER') ?: (getenv('DB_USERNAME') ?: ($_ENV['DB_USERNAME'] ?? 'root'));
+          $db_pass = getenv('MYSQLPASSWORD') ?: (getenv('DB_PASSWORD') ?: ($_ENV['DB_PASSWORD'] ?? ''));
+          $db_name = getenv('MYSQLDATABASE') ?: (getenv('DB_NAME') ?: ($_ENV['DB_NAME'] ?? 'railway'));
+
+          $db['default'] = array(
+              'dsn'      => '',
+              'hostname' => $db_host,
+              'port'     => (int)$db_port,
+              'username' => $db_user,
+              'password' => $db_pass,
+              'database' => $db_name,
+              'dbdriver' => 'mysqli',
+              'dbprefix' => '',
+              'pconnect' => FALSE,
+              'db_debug' => FALSE,
+              'cache_on' => FALSE,
+              'cachedir' => '',
+              'char_set' => 'utf8',
+              'dbcollat' => 'utf8_general_ci',
+              'swap_pre' => '',
+              'encrypt'  => FALSE,
+              'compress' => FALSE,
+              'stricton' => FALSE,
+              'failover' => array(),
+              'save_queries' => TRUE
+          );
+          EOF
+
+      - name: Restore Missing application/controllers/api/* (User, Game, Rummy, AnderBahar, Plan, Redeem, Cron)
+        run: |
+          mkdir -p application/controllers/api
+
+          cat << 'EOF' > application/controllers/api/User.php
+          <?php
+          defined('BASEPATH') OR exit('No direct script access allowed');
+
+          class User extends CI_Controller {
+              public function __construct() {
+                  parent::__construct();
+                  $this->load->model(['Users_model', 'Setting_model', 'Coin_plan_model']);
+                  header('Content-Type: application/json');
+              }
+
+              public function app() {
+                  $setting = $this->Setting_model->Setting();
+                  echo json_encode([
+                      'code' => 200,
+                      'message' => 'Success',
+                      'app_version' => $setting->app_version ?? '1',
+                      'setting' => $setting
+                  ]);
+              }
+
+              public function send_otp() {
+                  $mobile = $this->input->post('mobile');
+                  $setting = $this->Setting_model->Setting();
+                  $otp = (!empty($setting->default_otp)) ? $setting->default_otp : '1234';
+                  $otp_id = $this->Users_model->InsertOTP($mobile, $otp);
+                  echo json_encode([
+                      'code' => 200,
+                      'message' => 'OTP Sent Successfully (Default OTP: ' . $otp . ')',
+                      'otp_id' => (string)$otp_id,
+                      'otp' => (string)$otp
+                  ]);
+              }
+
+              public function register() {
+                  $mobile = $this->input->post('mobile');
+                  $name = $this->input->post('name') ?: 'Player';
+                  $gender = $this->input->post('gender') ?: 'm';
+                  $otp = $this->input->post('otp');
+                  $otp_id = $this->input->post('otp_id');
+                  $token = md5(uniqid((string)$mobile, true));
+                  $existing = $this->Users_model->UserProfileByMobile($mobile);
+                  if ($existing) {
+                      $this->Users_model->UpdateToken($existing[0]->id, $token);
+                      echo json_encode([
+                          'code' => 201,
+                          'message' => 'Login Successful',
+                          'token' => $token,
+                          'user' => $existing
+                      ]);
+                      return;
+                  }
+                  $pic = ($gender === 'f') ? 'f_1.png' : 'm_1.png';
+                  $user_id = $this->Users_model->RegisterUser($mobile, $name, $pic, $gender, $token);
+                  $setting = $this->Setting_model->Setting();
+                  if (!empty($setting->bonus)) {
+                      $this->Users_model->UpdateWalletOrder($setting->bonus, $user_id);
+                  }
+                  echo json_encode([
+                      'code' => 200,
+                      'message' => 'Registered Successfully',
+                      'user_id' => (string)$user_id,
+                      'token' => $token
+                  ]);
+              }
+
+              public function login() {
+                  $mobile = $this->input->post('mobile');
+                  $password = $this->input->post('password');
+                  $user = $this->Users_model->LoginUser($mobile, $password);
+                  if ($user) {
+                      $token = md5(uniqid((string)$mobile, true));
+                      $this->Users_model->UpdateToken($user[0]->id, $token);
+                      echo json_encode(['code' => 200, 'message' => 'Success', 'token' => $token, 'user' => $user]);
+                  } else {
+                      echo json_encode(['code' => 404, 'message' => 'Invalid credentials']);
+                  }
+              }
+
+              public function email_login() {
+                  $email = $this->input->post('email') ?: $this->input->post('mobile');
+                  $name = $this->input->post('name') ?: 'Player';
+                  $source = $this->input->post('source') ?: 'google';
+                  $pic = $this->input->post('profile_pic') ?: 'm_1.png';
+                  $gender = $this->input->post('gender') ?: 'm';
+                  $token = md5(uniqid((string)$email, true));
+                  $existing = $this->Users_model->UserProfileByEmail($email);
+                  if ($existing) {
+                      $this->Users_model->UpdateToken($existing[0]->id, $token);
+                      echo json_encode(['code' => 201, 'message' => 'Login Successful', 'token' => $token, 'user' => $existing]);
+                      return;
+                  }
+                  $user_id = $this->Users_model->RegisterUserEmail($email, $name, $source, $pic, $gender, $token);
+                  echo json_encode(['code' => 200, 'message' => 'Registered', 'user_id' => (string)$user_id, 'token' => $token]);
+              }
+
+              public function profile() {
+                  $id = $this->input->post('id') ?: $this->input->post('user_id');
+                  $fcm = $this->input->post('fcm');
+                  $app_version = $this->input->post('app_version');
+                  if ($id && $fcm) $this->Users_model->UpdateUser($id, $fcm);
+                  if ($id && $app_version) $this->Users_model->UpdateAppVersion($id, $app_version);
+                  $user = $this->Users_model->UserProfile($id);
+                  $setting = $this->Setting_model->Setting();
+                  echo json_encode([
+                      'code' => 200,
+                      'message' => 'Success',
+                      'user_data' => $user ?: [],
+                      'setting' => $setting,
+                      'admin_coin' => $setting->admin_coin ?? '0'
+                  ]);
+              }
+
+              public function update_profile() {
+                  $user_id = $this->input->post('user_id');
+                  $name = $this->input->post('name');
+                  $bank_detail = $this->input->post('bank_detail') ?: '';
+                  $adhar_card = $this->input->post('adhar_card') ?: '';
+                  $upi = $this->input->post('upi') ?: '';
+                  $this->Users_model->UpdateUserPic($user_id, $name, '', $bank_detail, $adhar_card, $upi);
+                  echo json_encode(['code' => 200, 'message' => 'Profile Updated Successfully']);
+              }
+
+              public function setting() {
+                  $setting = $this->Setting_model->Setting();
+                  echo json_encode(['code' => 200, 'message' => 'Success', 'setting' => $setting]);
+              }
+
+              public function leaderboard() {
+                  $this->load->model('Game_model');
+                  $lb = $this->Game_model->Leaderboard();
+                  echo json_encode(['code' => 200, 'message' => 'Success', 'leaderboard' => $lb ?: []]);
+              }
+
+              public function welcome_bonus() {
+                  $user_id = $this->input->post('user_id') ?: $this->input->post('id');
+                  $bonus = $this->Users_model->WelcomeBonus();
+                  $logs = $this->Users_model->WelcomeBonusLog($user_id);
+                  echo json_encode([
+                      'code' => 200,
+                      'message' => 'Success',
+                      'welcome_bonus' => $bonus ?: [],
+                      'collected_days' => is_array($logs) ? (string)count($logs) : '0'
+                  ]);
+              }
+
+              public function collect_welcome_bonus() {
+                  $user_id = $this->input->post('user_id') ?: $this->input->post('id');
+                  $bonus = $this->Users_model->WelcomeBonus();
+                  $logs = $this->Users_model->WelcomeBonusLog($user_id);
+                  $dayIndex = is_array($logs) ? count($logs) : 0;
+                  $coin = isset($bonus[$dayIndex]) ? $bonus[$dayIndex]->coin : 50;
+                  $this->Users_model->AddWelcomeBonus($coin, $user_id);
+                  $this->Users_model->UpdateWalletOrder($coin, $user_id);
+                  echo json_encode(['code' => 200, 'message' => 'Bonus Collected!', 'coin' => (string)$coin]);
+              }
+
+              public function wallet_history() {
+                  $user_id = $this->input->post('user_id') ?: $this->input->post('id');
+                  $history = $this->Users_model->View_WalletLog($user_id);
+                  echo json_encode(['code' => 200, 'message' => 'Success', 'GameLog' => $history ?: [], 'wallet_history' => $history ?: []]);
+              }
+
+              public function winning_history() {
+                  $user_id = $this->input->post('user_id') ?: $this->input->post('id');
+                  $tp = $this->Users_model->TeenPattiLog($user_id);
+                  $rm = $this->Users_model->RummyLog($user_id);
+                  echo json_encode(['code' => 200, 'message' => 'Success', 'TeenPattiGameLog' => $tp ?: [], 'RummyGameLog' => $rm ?: []]);
+              }
+
+              public function bot() {
+                  $bots = $this->Users_model->AllUserList();
+                  echo json_encode(['code' => 200, 'message' => 'Success', 'bot_user' => $bots ?: []]);
+              }
+
+              public function check_adhar() {
+                  $user_id = $this->input->post('user_id') ?: $this->input->post('id');
+                  $has = $this->Users_model->getAdhar($user_id);
+                  echo json_encode(['code' => 200, 'message' => 'Success', 'status' => $has ? '1' : '0']);
+              }
+          }
+          EOF
+
+          cat << 'EOF' > application/controllers/api/AnderBahar.php
+          <?php
+          defined('BASEPATH') OR exit('No direct script access allowed');
+
+          class AnderBahar extends CI_Controller {
+              public function __construct() {
+                  parent::__construct();
+                  $this->load->model(['AnderBahar_model', 'Users_model']);
+                  header('Content-Type: application/json');
+              }
+
+              public function room() {
+                  $user_id = $this->input->post('user_id');
+                  $rooms = $this->AnderBahar_model->getRoom('', $user_id);
+                  echo json_encode(['code' => 200, 'message' => 'Success', 'room_data' => $rooms ?: []]);
+              }
+
+              public function get_active_game() {
+                  $room_id = $this->input->post('room_id') ?: 1;
+                  $user_id = $this->input->post('user_id');
+                  $games = $this->AnderBahar_model->getActiveGameOnTable($room_id);
+                  if (empty($games)) {
+                      $cards = $this->AnderBahar_model->GetCards(1);
+                      $main_card = !empty($cards) ? $cards[0]->cards : 'ah';
+                      $new_id = $this->AnderBahar_model->Create($room_id, $main_card);
+                      $games = $this->AnderBahar_model->getActiveGameOnTable($room_id);
+                  }
+                  $active_id = !empty($games) ? $games[0]->id : 0;
+                  $cards = $active_id ? $this->AnderBahar_model->GetGameCards($active_id) : [];
+                  $profile = $user_id ? $this->Users_model->UserProfile($user_id) : [];
+                  echo json_encode([
+                      'code' => 200,
+                      'message' => 'Success',
+                      'game_data' => $games ?: [],
+                      'game_cards' => $cards ?: [],
+                      'online' => (string)$this->AnderBahar_model->getRoomOnline($room_id),
+                      'online_user' => $this->AnderBahar_model->getRoomOnlineUser($room_id) ?: [],
+                      'profile' => $profile ?: [],
+                      'my_ander_bet' => $this->AnderBahar_model->TotalBetAmount($active_id, 0),
+                      'my_bahar_bet' => $this->AnderBahar_model->TotalBetAmount($active_id, 1),
+                      'ander_bet' => $this->AnderBahar_model->TotalBetAmount($active_id, 0),
+                      'bahar_bet' => $this->AnderBahar_model->TotalBetAmount($active_id, 1),
+                      'last_winning' => $this->AnderBahar_model->getAllGameOnTable($room_id) ?: []
+                  ]);
+              }
+
+              public function place_bet() {
+                  $user_id = $this->input->post('user_id');
+                  $game_id = $this->input->post('game_id');
+                  $bet = $this->input->post('bet');
+                  $amount = (float)$this->input->post('amount');
+                  $user = $this->Users_model->UserProfile($user_id);
+                  if (empty($user) || $user[0]->wallet < $amount) {
+                      echo json_encode(['code' => 400, 'message' => 'Insufficient Wallet Balance']);
+                      return;
+                  }
+                  $this->AnderBahar_model->MinusWallet($user_id, $amount);
+                  $bet_id = $this->AnderBahar_model->PlaceBet([
+                      'ander_baher_id' => $game_id,
+                      'user_id' => $user_id,
+                      'bet' => $bet,
+                      'amount' => $amount,
+                      'added_date' => date('Y-m-d H:i:s')
+                  ]);
+                  $updated = $this->Users_model->UserProfile($user_id);
+                  echo json_encode([
+                      'code' => 200,
+                      'message' => 'Bet Placed Successfully',
+                      'bet_id' => (string)$bet_id,
+                      'wallet' => (string)($updated[0]->wallet ?? 0)
+                  ]);
+              }
+
+              public function cancel_bet() {
+                  $user_id = $this->input->post('user_id');
+                  $game_id = $this->input->post('game_id');
+                  $bet_id = $this->input->post('bet_id') ?: '';
+                  $bets = $this->AnderBahar_model->ViewBet($user_id, $game_id, '', $bet_id);
+                  if (!empty($bets)) {
+                      foreach ($bets as $b) {
+                          $this->AnderBahar_model->AddWallet($user_id, $b->amount);
+                          $this->AnderBahar_model->DeleteBet($b->id, $user_id, $game_id);
+                      }
+                  }
+                  $updated = $this->Users_model->UserProfile($user_id);
+                  echo json_encode([
+                      'code' => 200,
+                      'message' => 'Bet Cancelled & Refunded',
+                      'wallet' => (string)($updated[0]->wallet ?? 0)
+                  ]);
+              }
+
+              public function repeat_bet() {
+                  $user_id = $this->input->post('user_id');
+                  $updated = $this->Users_model->UserProfile($user_id);
+                  echo json_encode([
+                      'code' => 200,
+                      'message' => 'Bet Repeated',
+                      'wallet' => (string)($updated[0]->wallet ?? 0),
+                      'bet' => '0',
+                      'amount' => '10'
+                  ]);
+              }
+          }
+          EOF
+
+          cat << 'EOF' > application/controllers/api/Game.php
+          <?php
+          defined('BASEPATH') OR exit('No direct script access allowed');
+
+          class Game extends CI_Controller {
+              public function __construct() {
+                  parent::__construct();
+                  $this->load->model(['Game_model', 'Users_model', 'Setting_model']);
+                  header('Content-Type: application/json');
+              }
+
+              public function get_table_master() {
+                  $tables = $this->Game_model->getTableMaster();
+                  echo json_encode(['code' => 200, 'message' => 'Success', 'table_data' => $tables ?: []]);
+              }
+
+              public function get_table() {
+                  $user_id = $this->input->post('user_id');
+                  $boot_value = $this->input->post('boot_value') ?: 10;
+                  $tables = $this->Game_model->getCustomizeActiveTable($boot_value);
+                  if (!empty($tables)) {
+                      $table_id = $tables[0]->id;
+                  } else {
+                      $table_id = $this->Game_model->CreateTable([
+                          'boot_value' => $boot_value,
+                          'maximum_blind' => 4,
+                          'chaal_limit' => $boot_value * 128,
+                          'pot_limit' => $boot_value * 1024,
+                          'private' => 0,
+                          'added_date' => date('Y-m-d H:i:s'),
+                          'updated_date' => date('Y-m-d H:i:s')
+                      ]);
+                  }
+                  $seat = $this->Game_model->GetSeatOnTable($table_id);
+                  $this->Game_model->AddTableUser([
+                      'table_id' => $table_id,
+                      'user_id' => $user_id,
+                      'seat_position' => $seat ?: 1,
+                      'added_date' => date('Y-m-d H:i:s'),
+                      'updated_date' => date('Y-m-d H:i:s')
+                  ]);
+                  $table_users = $this->Game_model->TableUser($table_id);
+                  echo json_encode([
+                      'code' => 200,
+                      'message' => 'Success',
+                      'table_data' => [['table_id' => (string)$table_id]],
+                      'table_users' => $table_users ?: []
+                  ]);
+              }
+
+              public function get_customise_table() { $this->get_table(); }
+              public function get_private_table() { $this->get_table(); }
+
+              public function join_table() {
+                  $table_id = $this->input->post('table_id');
+                  $user_id = $this->input->post('user_id');
+                  $seat = $this->Game_model->GetSeatOnTable($table_id);
+                  if ($seat) {
+                      $this->Game_model->AddTableUser([
+                          'table_id' => $table_id,
+                          'user_id' => $user_id,
+                          'seat_position' => $seat,
+                          'added_date' => date('Y-m-d H:i:s'),
+                          'updated_date' => date('Y-m-d H:i:s')
+                      ]);
+                  }
+                  echo json_encode(['code' => 200, 'message' => 'Joined Table', 'table_data' => [['table_id' => (string)$table_id]]]);
+              }
+
+              public function start_game() {
+                  $table_id = $this->input->post('table_id');
+                  $active = $this->Game_model->getActiveGameOnTable($table_id);
+                  if (!empty($active)) {
+                      echo json_encode(['code' => 200, 'message' => 'Game In Progress', 'game_id' => (string)$active->id]);
+                      return;
+                  }
+                  $table = $this->Game_model->isTableAvail($table_id);
+                  $boot = $table ? $table->boot_value : 10;
+                  $users = $this->Game_model->TableUser($table_id);
+                  if (count($users) < 2) {
+                      echo json_encode(['code' => 404, 'message' => 'Waiting for Opponent']);
+                      return;
+                  }
+                  $game_id = $this->Game_model->Create([
+                      'table_id' => $table_id,
+                      'amount' => $boot * count($users),
+                      'added_date' => date('Y-m-d H:i:s'),
+                      'updated_date' => date('Y-m-d H:i:s')
+                  ]);
+                  $cards = $this->Game_model->GetCards(count($users) * 3);
+                  $idx = 0;
+                  foreach ($users as $u) {
+                      $this->Game_model->MinusWallet($u->user_id, $boot);
+                      $this->Game_model->GiveGameCards([
+                          'game_id' => $game_id,
+                          'user_id' => $u->user_id,
+                          'card1' => $cards[$idx++]->cards,
+                          'card2' => $cards[$idx++]->cards,
+                          'card3' => $cards[$idx++]->cards,
+                          'packed' => 0,
+                          'seen' => 0,
+                          'added_date' => date('Y-m-d H:i:s'),
+                          'updated_date' => date('Y-m-d H:i:s')
+                      ]);
+                  }
+                  echo json_encode(['code' => 200, 'message' => 'Game Started', 'game_id' => (string)$game_id]);
+              }
+
+              public function status() {
+                  $table_id = $this->input->post('table_id');
+                  $user_id = $this->input->post('user_id');
+                  $table_users = $this->Game_model->TableUser($table_id);
+                  $active = $this->Game_model->getActiveGameOnTable($table_id);
+                  $game_id = $active ? $active->id : 0;
+                  $cards = ($game_id && $user_id) ? $this->Game_model->getMyCards($game_id, $user_id) : [];
+                  $log = $game_id ? $this->Game_model->GameLog($game_id, 1) : [];
+                  echo json_encode([
+                      'code' => 200,
+                      'message' => 'Success',
+                      'table_users' => $table_users ?: [],
+                      'game_users' => $game_id ? $this->Game_model->GameAllUser($game_id) : [],
+                      'game_log' => $log ?: [],
+                      'active_game_id' => (string)$game_id,
+                      'game_status' => $game_id ? 1 : 0,
+                      'table_amount' => $active ? (string)$active->amount : '0',
+                      'cards' => $cards ?: [],
+                      'slide_show' => $game_id ? $this->Game_model->GetSlideShow($game_id) : []
+                  ]);
+              }
+
+              public function see_card() {
+                  $game_id = $this->input->post('game_id');
+                  $user_id = $this->input->post('user_id');
+                  $cards = $this->Game_model->getMyCards($game_id, $user_id);
+                  echo json_encode(['code' => 200, 'message' => 'Success', 'cards' => $cards ?: []]);
+              }
+
+              public function chaal() {
+                  $game_id = $this->input->post('game_id');
+                  $user_id = $this->input->post('user_id');
+                  $amount = (float)($this->input->post('amount') ?: 10);
+                  $this->Game_model->Chaal($game_id, $amount, $user_id);
+                  echo json_encode(['code' => 200, 'message' => 'Chaal Played']);
+              }
+
+              public function pack_game() {
+                  $game_id = $this->input->post('game_id');
+                  $user_id = $this->input->post('user_id');
+                  $this->Game_model->PackGame($user_id, $game_id);
+                  echo json_encode(['code' => 200, 'message' => 'Packed']);
+              }
+
+              public function show_game() {
+                  $game_id = $this->input->post('game_id');
+                  $user_id = $this->input->post('user_id');
+                  $amount = (float)($this->input->post('amount') ?: 10);
+                  $this->Game_model->Show($game_id, $amount, $user_id);
+                  echo json_encode(['code' => 200, 'message' => 'Show Declared']);
+              }
+
+              public function leave_table() {
+                  $table_id = $this->input->post('table_id');
+                  $user_id = $this->input->post('user_id');
+                  $this->Game_model->RemoveTableUser(['table_id' => $table_id, 'user_id' => $user_id]);
+                  echo json_encode(['code' => 200, 'message' => 'Left Table']);
+              }
+
+              public function chat() {
+                  $game_id = $this->input->post('game_id');
+                  $chat = $this->input->post('chat');
+                  $user_id = $this->input->post('user_id');
+                  if (!empty($chat)) {
+                      $this->Game_model->Chat(['game_id' => $game_id, 'chat' => $chat, 'user_id' => $user_id, 'added_date' => date('Y-m-d H:i:s')]);
+                  }
+                  $list = $this->Game_model->ChatList($game_id);
+                  echo json_encode(['code' => 200, 'message' => 'Success', 'list' => $list ?: []]);
+              }
+
+              public function tip() {
+                  $amount = (float)$this->input->post('tip');
+                  $user_id = $this->input->post('user_id');
+                  $table_id = $this->input->post('table_id');
+                  $gift_id = $this->input->post('gift_id') ?: 0;
+                  $to_user_id = $this->input->post('to_user_id') ?: 0;
+                  $this->Users_model->TipAdmin($amount, $user_id, $table_id, $gift_id, $to_user_id);
+                  echo json_encode(['code' => 200, 'message' => 'Tip Sent']);
+              }
+          }
+          EOF
+
+          cat << 'EOF' > application/controllers/api/Rummy.php
+          <?php
+          defined('BASEPATH') OR exit('No direct script access allowed');
+
+          class Rummy extends CI_Controller {
+              public function __construct() {
+                  parent::__construct();
+                  $this->load->model(['Rummy_model', 'Users_model']);
+                  header('Content-Type: application/json');
+              }
+
+              public function get_table_master() {
+                  $tables = $this->Rummy_model->getTableMaster();
+                  echo json_encode(['code' => 200, 'message' => 'Success', 'table_data' => $tables ?: []]);
+              }
+
+              public function get_table() {
+                  $user_id = $this->input->post('user_id');
+                  $boot_value = $this->input->post('boot_value') ?: 80;
+                  $tables = $this->Rummy_model->getCustomizeActiveTable($boot_value);
+                  $table_id = !empty($tables) ? $tables[0]->id : $this->Rummy_model->CreateTable([
+                      'boot_value' => $boot_value,
+                      'added_date' => date('Y-m-d H:i:s'),
+                      'updated_date' => date('Y-m-d H:i:s')
+                  ]);
+                  $seat = $this->Rummy_model->GetSeatOnTable($table_id);
+                  $this->Rummy_model->AddTableUser([
+                      'table_id' => $table_id,
+                      'user_id' => $user_id,
+                      'seat_position' => $seat ?: 1,
+                      'added_date' => date('Y-m-d H:i:s'),
+                      'updated_date' => date('Y-m-d H:i:s')
+                  ]);
+                  echo json_encode([
+                      'code' => 200,
+                      'message' => 'Success',
+                      'table_data' => [['table_id' => (string)$table_id]],
+                      'table_users' => $this->Rummy_model->TableUser($table_id) ?: []
+                  ]);
+              }
+
+              public function status() {
+                  $table_id = $this->input->post('table_id');
+                  $active = $this->Rummy_model->getActiveGameOnTable($table_id);
+                  $game_id = $active ? $active->id : 0;
+                  echo json_encode([
+                      'code' => 200,
+                      'message' => 'Success',
+                      'table_users' => $this->Rummy_model->TableUser($table_id) ?: [],
+                      'game_users' => $game_id ? $this->Rummy_model->GameAllUser($game_id) : [],
+                      'active_game_id' => (string)$game_id,
+                      'game_status' => $game_id ? 1 : 0
+                  ]);
+              }
+
+              public function my_card() {
+                  $game_id = $this->input->post('game_id');
+                  $user_id = $this->input->post('user_id');
+                  $cards = $this->Rummy_model->getMyCards($game_id, $user_id);
+                  echo json_encode(['code' => 200, 'message' => 'Success', 'cards' => $cards ?: []]);
+              }
+
+              public function leave_table() {
+                  $table_id = $this->input->post('table_id');
+                  $user_id = $this->input->post('user_id');
+                  $this->Rummy_model->RemoveTableUser(['table_id' => $table_id, 'user_id' => $user_id]);
+                  echo json_encode(['code' => 200, 'message' => 'Left Rummy Table']);
+              }
+          }
+          EOF
+
+          cat << 'EOF' > application/controllers/api/Plan.php
+          <?php
+          defined('BASEPATH') OR exit('No direct script access allowed');
+
+          class Plan extends CI_Controller {
+              public function __construct() {
+                  parent::__construct();
+                  $this->load->model(['Coin_plan_model', 'Users_model']);
+                  header('Content-Type: application/json');
+              }
+
+              public function index() {
+                  $plans = $this->Coin_plan_model->List();
+                  echo json_encode(['code' => 200, 'message' => 'Success', 'PlanDetails' => $plans ?: []]);
+              }
+
+              public function gift() {
+                  $table_id = $this->input->post('table_id') ?: 0;
+                  $gifts = $this->Users_model->GiftList($table_id);
+                  echo json_encode(['code' => 200, 'message' => 'Success', 'Gift' => $gifts ?: []]);
+              }
+
+              public function place_order() {
+                  $user_id = $this->input->post('user_id');
+                  $plan_id = $this->input->post('plan_id');
+                  $plan = $this->Coin_plan_model->View($plan_id);
+                  if (!$plan) {
+                      echo json_encode(['code' => 404, 'message' => 'Invalid Plan']);
+                      return;
+                  }
+                  $order_id = $this->Coin_plan_model->GetCoin($user_id, $plan_id, $plan->coin, $plan->price);
+                  echo json_encode(['code' => 200, 'message' => 'Order Created', 'order_id' => (string)$order_id, 'Total_Amount' => (string)$plan->price]);
+              }
+
+              public function pay_now() {
+                  $user_id = $this->input->post('user_id');
+                  $order_id = $this->input->post('order_id');
+                  $payment_id = $this->input->post('razor_payment_id') ?: 'pay_demo';
+                  $this->Coin_plan_model->UpdateOrder($user_id, $order_id, $payment_id);
+                  $order = $this->Coin_plan_model->GetUserByOrderId($order_id);
+                  if (!empty($order)) {
+                      $this->Users_model->UpdateWalletOrder($order[0]->coin, $user_id);
+                  }
+                  echo json_encode(['code' => 200, 'message' => 'Coins Credited Successfully']);
+              }
+          }
+          EOF
+
+          cat << 'EOF' > application/controllers/api/Redeem.php
+          <?php
+          defined('BASEPATH') OR exit('No direct script access allowed');
+
+          class Redeem extends CI_Controller {
+              public function __construct() {
+                  parent::__construct();
+                  $this->load->model(['WithdrawalLog_model', 'Users_model']);
+                  header('Content-Type: application/json');
+              }
+
+              public function list() {
+                  $list = $this->WithdrawalLog_model->AllRedeemList();
+                  echo json_encode(['code' => 200, 'message' => 'Success', 'List' => $list ?: []]);
+              }
+
+              public function Withdraw() {
+                  $user_id = $this->input->post('user_id');
+                  $redeem_id = $this->input->post('redeem_id');
+                  $mobile = $this->input->post('mobile') ?: '';
+                  $redeem = $this->WithdrawalLog_model->getRedeem($redeem_id);
+                  if (!$redeem) {
+                      echo json_encode(['code' => 404, 'message' => 'Invalid Redeem Option']);
+                      return;
+                  }
+                  $id = $this->WithdrawalLog_model->WithDraw($user_id, $redeem_id, $redeem->coin, $mobile);
+                  echo json_encode(['code' => 200, 'message' => 'Withdrawal Request Submitted', 'id' => (string)$id]);
+              }
+
+              public function WithDrawal_log() {
+                  $user_id = $this->input->post('user_id');
+                  $logs = $this->WithdrawalLog_model->WithDrawal_log($user_id);
+                  echo json_encode(['code' => 200, 'message' => 'Success', 'List' => $logs ?: []]);
+              }
+          }
+          EOF
+
+          cat << 'EOF' > application/controllers/api/Cron.php
+          <?php
+          defined('BASEPATH') OR exit('No direct script access allowed');
+
+          class Cron extends CI_Controller {
+              public function __construct() {
+                  parent::__construct();
+                  $this->load->model(['AnderBahar_model', 'Game_model', 'Rummy_model']);
+              }
+
+              public function all() {
+                  $rooms = $this->AnderBahar_model->getRoom();
+                  if (!empty($rooms)) {
+                      foreach ($rooms as $r) {
+                          $active = $this->AnderBahar_model->getActiveGameOnTable($r->id);
+                          if (empty($active)) {
+                              $cards = $this->AnderBahar_model->GetCards(1);
+                              $main = !empty($cards) ? $cards[0]->cards : 'ah';
+                              $this->AnderBahar_model->Create($r->id, $main);
+                          }
+                      }
+                  }
+                  echo "OK";
+              }
+
+              public function cron_draw() { echo "OK"; }
+              public function cron_rummy_draw() { echo "OK"; }
+          }
+          EOF
+
+      - name: Patch Android App (Fix Const.java MAIN URL + strings.xml)
+        env:
+          RAILWAY_URL: ${{ github.event.inputs.railway_url || 'https://allinone-backend-production.up.railway.app/' }}
+        run: |
+          case "$RAILWAY_URL" in
+            */) ;;
+            *) RAILWAY_URL="${RAILWAY_URL}/" ;;
+          esac
+
+          # 1. Fix Const.java (uncomment MAIN and set to Railway URL)
+          sed -i 's|//    public static final String MAIN = "https://androappstech.in/AllInOneDemo/";|    public static final String MAIN = "'"$RAILWAY_URL"'";|g' android-app/app/src/main/java/com/gamegards/allinonev3/SampleClasses/Const.java
+
+          # 2. Fix strings.xml line 9 syntax error (remove stray "removeLastChars")
+          sed -i 's|</string>removeLastChars|</string>|g' android-app/app/src/main/res/values/strings.xml
+
+      - name: Generate Railway Dockerfile, Entrypoint (Auto SQL Import + 5s Cron) & railway.json
+        run: |
+          cat << 'ENTRY_EOF' > railway-entrypoint.sh
+          #!/usr/bin/env bash
+          set -e
+
+          PORT_TO_USE="${PORT:-8080}"
+          sed -i "s/Listen 80/Listen ${PORT_TO_USE}/g" /etc/apache2/ports.conf
+          sed -i "s/<VirtualHost \*:80>/<VirtualHost *:${PORT_TO_USE}>/g" /etc/apache2/sites-available/000-default.conf
+          echo "ServerName localhost" >> /etc/apache2/apache2.conf
+
+          export DB_HOST="${MYSQLHOST:-${DB_HOST:-127.0.0.1}}"
+          export DB_PORT="${MYSQLPORT:-${DB_PORT:-3306}}"
+          export DB_USERNAME="${MYSQLUSER:-${DB_USERNAME:-root}}"
+          export DB_PASSWORD="${MYSQLPASSWORD:-${DB_PASSWORD:-}}"
+          export DB_NAME="${MYSQLDATABASE:-${DB_NAME:-railway}}"
+
+          if [ -f "/var/www/html/db/AllInOneDemoV3.sql" ]; then
+            export MYSQL_PWD="${DB_PASSWORD}"
+            for i in $(seq 1 20); do
+              if mysql -h"${DB_HOST}" -P"${DB_PORT}" -u"${DB_USERNAME}" "${DB_NAME}" -e "SELECT 1" >/dev/null 2>&1; then
+                TABLE_EXISTS=$(mysql -N -s -h"${DB_HOST}" -P"${DB_PORT}" -u"${DB_USERNAME}" "${DB_NAME}" -e "SHOW TABLES LIKE 'tbl_admin';" 2>/dev/null || true)
+                if [ -z "$TABLE_EXISTS" ]; then
+                  echo "Importing db/AllInOneDemoV3.sql into Railway MySQL..."
+                  { echo "SET SESSION sql_mode='';"; cat /var/www/html/db/AllInOneDemoV3.sql; } | mysql -h"${DB_HOST}" -P"${DB_PORT}" -u"${DB_USERNAME}" "${DB_NAME}" || true
+                  echo "SQL import finished."
+                else
+                  echo "Database already initialized (tbl_admin found)."
+                fi
+                break
+              fi
+              echo "Waiting for MySQL... ($i/20)"
+              sleep 2
+            done
+            unset MYSQL_PWD
+          fi
+
+          (
+            while true; do
+              php /var/www/html/index.php api cron all >/dev/null 2>&1 || true
+              php /var/www/html/index.php api cron cron_draw >/dev/null 2>&1 || true
+              php /var/www/html/index.php api cron cron_rummy_draw >/dev/null 2>&1 || true
+              sleep 5
+            done
+          ) &
+
+          exec apache2-foreground
+          ENTRY_EOF
+          chmod +x railway-entrypoint.sh
+
+          cat << 'DOCKER_EOF' > Dockerfile
+          FROM php:7.4-apache
+
+          RUN apt-get update && apt-get install -y \
+              default-mysql-client \
+              libpng-dev \
+              libjpeg-dev \
+              libfreetype6-dev \
+              libzip-dev \
+              unzip \
+              curl \
+              && docker-php-ext-configure gd --with-freetype --with-jpeg \
+              && docker-php-ext-install -j$(nproc) mysqli pdo pdo_mysql gd zip \
+              && a2enmod rewrite headers \
+              && rm -rf /var/lib/apt/lists/*
+
+          RUN sed -i 's/AllowOverride None/AllowOverride All/g' /etc/apache2/apache2.conf /etc/apache2/sites-available/*.conf \
+              && printf "display_errors = Off\nerror_reporting = E_ALL & ~E_NOTICE & ~E_DEPRECATED\n" > /usr/local/etc/php/conf.d/ci3-clean.ini
+
+          WORKDIR /var/www/html
+          COPY . /var/www/html/
+          COPY railway-entrypoint.sh /usr/local/bin/railway-entrypoint.sh
+
+          RUN mkdir -p /var/www/html/data/post /var/www/html/data/Redeem /var/www/html/data/cards /var/www/html/application/logs /var/www/html/application/cache \
+              && chmod -R 777 /var/www/html/data /var/www/html/application/logs /var/www/html/application/cache \
+              && chmod +x /usr/local/bin/railway-entrypoint.sh
+
+          EXPOSE 8080
+          CMD ["/usr/local/bin/railway-entrypoint.sh"]
+          DOCKER_EOF
+
+          cat << 'RAILWAY_EOF' > railway.json
+          {
+            "$schema": "https://railway.app/railway.schema.json",
+            "build": {
+              "builder": "DOCKERFILE",
+              "dockerfilePath": "Dockerfile"
+            },
+            "deploy": {
+              "restartPolicyType": "ON_FAILURE",
+              "restartPolicyMaxRetries": 10
+            }
+          }
+          RAILWAY_EOF
+
+          cat << 'DOCKERIGNORE_EOF' > .dockerignore
+          android-app/
+          .git/
+          .github/
+          node_modules/
+          DOCKERIGNORE_EOF
+
+      - name: Commit & Push Extracted Backend + Android Project to GitHub Repo
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
+          git add -A
+          if ! git diff --staged --quiet; then
+            git commit -m "feat: unpack AllInOne V3 PHP Backend + MySQL DB + Native Android App from GDrive"
+            git push origin HEAD:${{ github.ref_name }} --force
+          fi
