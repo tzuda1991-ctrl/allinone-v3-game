@@ -65,7 +65,7 @@ jobs:
           distribution: 'temurin'
           java-version: '8'
 
-      - name: Fix Const.java, strings.xml & Gradle Repositories
+      - name: Fix Const.java, strings.xml, Gradle & Splunk Mint Java Calls
         working-directory: ${{ steps.locate.outputs.dir }}
         env:
           LIVE_URL: ${{ github.event.inputs.railway_url || 'https://allinone-v3-game-production.up.railway.app/' }}
@@ -121,11 +121,24 @@ jobs:
               g_txt = g_txt.replace('android {', 'android {\n    lintOptions {\n        checkReleaseBuilds false\n        abortOnError false\n    }\n', 1)
           with open(app_gradle_path, 'w', encoding='utf-8') as f:
               f.write(g_txt)
+
+          # 5. Remove dead Splunk Mint imports/calls from all Java files (e.g. Splashscreen.java)
+          for root, _, files in os.walk('app/src/main/java'):
+              for fname in files:
+                  if fname.endswith('.java'):
+                      fpath = os.path.join(root, fname)
+                      with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
+                          jtxt = f.read()
+                      if 'splunk.mint' in jtxt or 'Mint.' in jtxt:
+                          jtxt = re.sub(r'(?m)^.*com\.splunk\.mint.*\r?\n?', '', jtxt)
+                          jtxt = re.sub(r'(?m)^.*\bMint\.[A-Za-z0-9_]+\(.*?\);\s*\r?\n?', '', jtxt)
+                          with open(fpath, 'w', encoding='utf-8') as f:
+                              f.write(jtxt)
           PYEOF
 
           grep -n "String MAIN" app/src/main/java/com/gamegards/allinonev3/SampleClasses/Const.java
 
-          # 5. Fix Root build.gradle
+          # 6. Fix Root build.gradle
           cat << 'EOF' > build.gradle
           buildscript {
               repositories {
