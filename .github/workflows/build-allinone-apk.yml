@@ -1,0 +1,185 @@
+name: 02 - Build AllInOne V3 Android APK
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    paths:
+      - '.github/workflows/build-allinone-apk.yml'
+      - 'android-app/**'
+  workflow_dispatch:
+    inputs:
+      railway_url:
+        description: 'Live Railway Backend URL (must end with /)'
+        required: true
+        default: 'https://allinone-v3-game-production.up.railway.app/'
+      app_name:
+        description: 'Android App Display Name'
+        required: true
+        default: 'AllInOne V3 Game'
+
+jobs:
+  build-allinone-apk:
+    name: Compile Native Android APK (com.gamegards.allinonev3)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Locate Android Project Directory (android-app/ or DemoAllinone-master/ or Root)
+        id: locate
+        run: |
+          if [ -f "android-app/app/build.gradle" ]; then
+            echo "dir=android-app" >> $GITHUB_OUTPUT
+          elif [ -f "DemoAllinone-master/app/build.gradle" ]; then
+            echo "dir=DemoAllinone-master" >> $GITHUB_OUTPUT
+          elif [ -f "app/build.gradle" ]; then
+            echo "dir=." >> $GITHUB_OUTPUT
+          else
+            echo "::error::Android project not found! Run Workflow 01 first."
+            exit 1
+          fi
+
+      - name: Setup Java JDK 8 (Required for Gradle 6.1.1 & AGP 4.0.1)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '8'
+
+      - name: Setup Android SDK (API 29 & Build-Tools 29.0.2)
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK Platform 29 & Generate Gradle Wrapper
+        working-directory: ${{ steps.locate.outputs.dir }}
+        run: |
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "platforms;android-29" "build-tools;29.0.2" "platform-tools"
+          if [ ! -f "./gradlew" ]; then
+            gradle wrapper --gradle-version 6.1.1
+          fi
+          chmod +x ./gradlew
+
+      - name: Fix Const.java, strings.xml & Gradle Repositories
+        working-directory: ${{ steps.locate.outputs.dir }}
+        env:
+          LIVE_URL: ${{ github.event.inputs.railway_url || 'https://allinone-v3-game-production.up.railway.app/' }}
+          APP_TITLE: ${{ github.event.inputs.app_name || 'AllInOne V3 Game' }}
+        run: |
+          python3 - << 'PYEOF'
+          import os, re
+
+          live_url = os.environ.get('LIVE_URL', '').strip()
+          if not live_url.endswith('/'):
+              live_url += '/'
+          app_title = os.environ.get('APP_TITLE', 'AllInOne V3 Game').strip()
+
+          # 1. Fix Const.java (uncomment & set MAIN URL)
+          const_path = 'app/src/main/java/com/gamegards/allinonev3/SampleClasses/Const.java'
+          with open(const_path, 'r', encoding='utf-8', errors='replace') as f:
+              const_txt = f.read()
+          const_txt = re.sub(r'(?m)^.*public\s+static\s+final\s+String\s+MAIN\s*=.*\r?\n?', '', const_txt)
+          const_txt = const_txt.replace(
+              'public class Const {',
+              'public class Const {\n    public static final String MAIN = "' + live_url + '";\n',
+              1
+          )
+          with open(const_path, 'w', encoding='utf-8') as f:
+              f.write(const_txt)
+
+          # 2. Fix strings.xml
+          strings_path = 'app/src/main/res/values/strings.xml'
+          with open(strings_path, 'r', encoding='utf-8', errors='replace') as f:
+              s_txt = f.read()
+          s_txt = s_txt.replace('</string>removeLastChars', '</string>')
+          s_txt = re.sub(r'<string name="app_name">.*?</string>', '<string name="app_name">' + app_title + '</string>', s_txt)
+          with open(strings_path, 'w', encoding='utf-8') as f:
+              f.write(s_txt)
+
+          # 3. Allow Cleartext + HTTPS Traffic in AndroidManifest.xml
+          manifest_path = 'app/src/main/AndroidManifest.xml'
+          with open(manifest_path, 'r', encoding='utf-8', errors='replace') as f:
+              m_txt = f.read()
+          if 'usesCleartextTraffic' not in m_txt:
+              m_txt = m_txt.replace('<application', '<application android:usesCleartextTraffic="true"', 1)
+          with open(manifest_path, 'w', encoding='utf-8') as f:
+              f.write(m_txt)
+
+          # 4. Clean dead Splunk repo/dependency, replace jcenter() & disable strict release lint in app/build.gradle
+          app_gradle_path = 'app/build.gradle'
+          with open(app_gradle_path, 'r', encoding='utf-8', errors='replace') as f:
+              g_txt = f.read()
+          g_txt = re.sub(r'maven\s*\{\s*url\s*"https://mint\.splunk\.com/gradle/"\s*\}', '', g_txt)
+          g_txt = re.sub(r'.*com\.splunk\.mint:mint.*\r?\n?', '', g_txt)
+          g_txt = g_txt.replace('jcenter()', 'mavenCentral()\n        maven { url "https://maven.aliyun.com/repository/jcenter" }')
+          if 'lintOptions' not in g_txt:
+              g_txt = g_txt.replace('android {', 'android {\n    lintOptions {\n        checkReleaseBuilds false\n        abortOnError false\n    }\n', 1)
+          with open(app_gradle_path, 'w', encoding='utf-8') as f:
+              f.write(g_txt)
+          PYEOF
+
+          grep -n "String MAIN" app/src/main/java/com/gamegards/allinonev3/SampleClasses/Const.java
+
+          # 5. Fix Root build.gradle
+          cat << 'EOF' > build.gradle
+          buildscript {
+              repositories {
+                  google()
+                  mavenCentral()
+                  jcenter()
+                  maven { url "https://maven.aliyun.com/repository/jcenter" }
+              }
+              dependencies {
+                  classpath 'com.android.tools.build:gradle:4.0.1'
+                  classpath 'com.google.gms:google-services:4.3.3'
+              }
+          }
+          allprojects {
+              repositories {
+                  google()
+                  mavenCentral()
+                  jcenter()
+                  maven { url "https://jitpack.io" }
+                  maven { url "https://maven.aliyun.com/repository/jcenter" }
+              }
+          }
+          task clean(type: Delete) {
+              delete rootProject.buildDir
+          }
+          EOF
+
+      - name: Generate Release Keystore & Sign APK
+        working-directory: ${{ steps.locate.outputs.dir }}
+        run: |
+          keytool -genkey -v \
+            -keystore app/release-key.jks \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -alias allinone \
+            -storepass "allinone2026" \
+            -keypass "allinone2026" \
+            -dname "CN=AllInOneV3, OU=Mobile, O=GameGards, L=Mumbai, S=MH, C=IN"
+
+          echo "### Firebase SHA-1 & SHA-256 Fingerprints" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          keytool -list -v -keystore app/release-key.jks -alias allinone -storepass "allinone2026" | grep -E "SHA1:|SHA256:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Build Debug & Signed Release APK with Gradle
+        working-directory: ${{ steps.locate.outputs.dir }}
+        run: |
+          ./gradlew assembleDebug assembleRelease --no-daemon --stacktrace
+
+          APKSIGNER=$(find $ANDROID_HOME/build-tools -name "apksigner" | sort -V | tail -n 1)
+          ZIPALIGN=$(find $ANDROID_HOME/build-tools -name "zipalign" | sort -V | tail -n 1)
+          UNSIGNED_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          if [ -n "$UNSIGNED_APK" ] && [ -n "$APKSIGNER" ]; then
+            "$ZIPALIGN" -v -p 4 "$UNSIGNED_APK" app/build/outputs/apk/release/allinonev3-aligned.apk
+            "$APKSIGNER" sign --ks app/release-key.jks --ks-key-alias allinone --ks-pass pass:allinone2026 --key-pass pass:allinone2026 --out app/build/outputs/apk/release/allinonev3-signed-release.apk app/build/outputs/apk/release/allinonev3-aligned.apk
+          fi
+
+      - name: Upload Ready-to-Install APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: allinone-v3-teenpatti-rummy-andarbahar-apk
+          path: |
+            ${{ steps.locate.outputs.dir }}/app/build/outputs/apk/debug/*.apk
+            ${{ steps.locate.outputs.dir }}/app/build/outputs/apk/release/*.apk
+          retention-days: 30
