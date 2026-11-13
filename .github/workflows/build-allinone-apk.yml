@@ -45,14 +45,15 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android SDK (API 29 & Build-Tools 29.0.2)
-        uses: android-actions/setup-android@v3
-
       - name: Install Android SDK Platform 29 & Generate Gradle Wrapper
         working-directory: ${{ steps.locate.outputs.dir }}
         run: |
-          yes | sdkmanager --licenses >/dev/null 2>&1 || true
-          sdkmanager "platforms;android-29" "build-tools;29.0.2" "platform-tools"
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDKMANAGER=$(find "$SDK_ROOT/cmdline-tools" -name "sdkmanager" | sort -V | tail -n 1)
+          echo "ANDROID_HOME=$SDK_ROOT" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> $GITHUB_ENV
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-29" "build-tools;29.0.2" "platform-tools"
           if [ ! -f "./gradlew" ]; then
             gradle wrapper --gradle-version 6.1.1
           fi
