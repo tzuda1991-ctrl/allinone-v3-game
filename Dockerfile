@@ -12,8 +12,12 @@ RUN sed -i 's|deb.debian.org|archive.debian.org|g; s|security.debian.org|archive
     curl \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j$(nproc) mysqli pdo pdo_mysql gd zip \
-    && rm -f /etc/apache2/mods-enabled/mpm_event.* /etc/apache2/mods-enabled/mpm_worker.* \
+    && rm -f /etc/apache2/mods-enabled/mpm_* \
+    && grep -RlE "LoadModule.*mpm_" /etc/apache2/mods-enabled/ /etc/apache2/conf-enabled/ /etc/apache2/sites-enabled/ 2>/dev/null | xargs -r rm -f \
     && a2enmod mpm_prefork rewrite headers \
+    && echo "ServerName localhost" >> /etc/apache2/apache2.conf \
+    && apache2ctl -M | grep mpm \
+    && apache2ctl -t \
     && rm -rf /var/lib/apt/lists/*
 
 RUN sed -i 's/AllowOverride None/AllowOverride All/g' /etc/apache2/apache2.conf /etc/apache2/sites-available/*.conf \
@@ -28,4 +32,4 @@ RUN mkdir -p /var/www/html/data/post /var/www/html/data/Redeem /var/www/html/dat
     && chmod +x /usr/local/bin/railway-entrypoint.sh
 
 EXPOSE 8080
-CMD ["/usr/local/bin/railway-entrypoint.sh"]
+CMD ["/bin/bash", "-c", "rm -f /etc/apache2/mods-enabled/mpm_event.* /etc/apache2/mods-enabled/mpm_worker.* /etc/apache2/mods-enabled/mpm_itk.* && exec /usr/local/bin/railway-entrypoint.sh"]
