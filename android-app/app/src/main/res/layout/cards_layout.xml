@@ -8,8 +8,8 @@
 
     <ImageView
         android:id="@+id/cards"
-        android:layout_width="25dp"
-        android:layout_height="35dp"
+        android:layout_width="36dp"
+        android:layout_height="50dp"
         android:src="@drawable/bl4"/>
 <!--        android:layout_marginRight="-12dp"-->
 

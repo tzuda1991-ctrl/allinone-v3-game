@@ -46,3 +46,18 @@ $game->amount = 250;
 $settle->invoke($controller,3,$table);
 check_rule($model->winner === 1, 'Last player after folds');
 echo "Teen Patti round checks passed\n";
+
+foreach ([50, 100] as $boot) {
+    $table->boot_value = $boot;
+    $table->pot_limit = $boot * 80;
+    $model->players = [(object)['user_id'=>1,'card1'=>1,'card2'=>0,'card3'=>0], (object)['user_id'=>2,'card1'=>2,'card2'=>0,'card3'=>0]];
+    $model->winner = null;
+    for ($turn = 1; $turn <= 4; $turn++) {
+        $game->amount = $boot * (5 + $turn);
+        $settle->invoke($controller,3,$table);
+        check_rule($model->winner === null, 'Two remaining seats must not trigger an early show');
+    }
+    $game->amount = $table->pot_limit;
+    $settle->invoke($controller,3,$table);
+    check_rule($model->winner === 2, 'Selected table pot cap');
+}

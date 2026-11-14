@@ -180,7 +180,7 @@ public class Rummy5Player extends AppCompatActivity implements Animation.Animati
     SharedPreferences cardPref;
     String Pref_cards = "cards_";
     TextView tv_gameid,tv_tableid;
-    int min_entry = 0;
+    float min_entry = 0;
 
     ImageView ivDropCreate;
     boolean isCardPick = false;
@@ -271,13 +271,13 @@ public class Rummy5Player extends AppCompatActivity implements Animation.Animati
 
 
         if(getIntent().hasExtra("min_entry"))
-            min_entry = getIntent().getIntExtra("min_entry",0);
+            min_entry = getIntent().getFloatExtra("min_entry",0f);
 
         RelativeLayout rltParentLayout = findViewById(R.id.rltParentLayout);
         ImageView imgTable = findViewById(R.id.imgTable);
 
-        SetBackgroundImageAsDisplaySize(this,rltParentLayout,R.drawable.bgnew1);
-        LoadImage().load(R.drawable.table_v5).into(imgTable);
+        rltParentLayout.setBackgroundResource(R.drawable.club_room);
+        imgTable.setImageResource(R.drawable.club_table);
 
         touchmode = findViewById(R.id.touchmode);
         touchmode.setVisibility(View.GONE);
@@ -540,7 +540,7 @@ public class Rummy5Player extends AppCompatActivity implements Animation.Animati
     private void InitCoutDown() {
 
 
-        API_CALL_get_table();
+
 
 
         timerstatus = new Timer();
@@ -550,7 +550,9 @@ public class Rummy5Player extends AppCompatActivity implements Animation.Animati
                                             @Override
                                             public void run() {
 
-                                                API_CALL_status();
+                                                runOnUiThread(new Runnable() {
+                                                    @Override public void run() { API_CALL_status(); }
+                                                });
 
 
 
@@ -590,7 +592,8 @@ public class Rummy5Player extends AppCompatActivity implements Animation.Animati
             }
 
 
-        }.start();
+        };
+        API_CALL_get_table();
 
 
     }
@@ -1438,7 +1441,7 @@ public class Rummy5Player extends AppCompatActivity implements Animation.Animati
     }
 
 
-    String table_id = "1",game_id = "",Main_Game_ID = "";
+    String table_id = "",game_id = "",Main_Game_ID = "";
     private void API_CALL_get_table() {
 
         HashMap params = new HashMap();
@@ -1478,6 +1481,10 @@ public class Rummy5Player extends AppCompatActivity implements Animation.Animati
                                 .getJSONObject(0)
                                 .optString("table_id");
 
+                        if (isFinishing() || isDestroyed() || table_id.isEmpty()) return;
+                        counttimerforstartgame.cancel();
+                        counttimerforstartgame.start();
+                        API_CALL_status();
                         JSONArray table_users = jsonObject.optJSONArray("table_data");
 
                         if(table_users != null)
@@ -1924,9 +1931,11 @@ public class Rummy5Player extends AppCompatActivity implements Animation.Animati
     private void API_CALL_start_game() {
 
 
+        if (table_id.isEmpty() || isFinishing() || isDestroyed()) return;
         RestartGameActivity();
 
         HashMap params = new HashMap();
+        params.put("table_id", table_id);
         params.put("user_id",""+prefs.getString("user_id", ""));
         params.put("token",""+prefs.getString("token", ""));
 
@@ -1967,7 +1976,7 @@ public class Rummy5Player extends AppCompatActivity implements Animation.Animati
     boolean isStatusApiCalling = false;
     private void API_CALL_status() {
 
-        if(isStatusApiCalling)
+        if (isFinishing() || isDestroyed() || table_id.isEmpty() || isStatusApiCalling)
             return;
 
         isStatusApiCalling = true;
@@ -2241,7 +2250,7 @@ public class Rummy5Player extends AppCompatActivity implements Animation.Animati
             CardModel model = new CardModel();
             model.Image = ""+jsonArray.get(i);
 
-            if(model.Image.substring(model.Image.length() - 1).equalsIgnoreCase("_"))
+            if(model.Image.endsWith("_"))
             {
                 model.Image = removeLastChars(model.Image,1);
             }
@@ -2322,7 +2331,8 @@ public class Rummy5Player extends AppCompatActivity implements Animation.Animati
     @Override
     protected void onDestroy() {
         StopSound();
-        timerstatus.cancel();
+        if (timerstatus != null) timerstatus.cancel();
+        if (counttimerforstartgame != null) counttimerforstartgame.cancel();
         super.onDestroy();
 
     }
@@ -2343,11 +2353,7 @@ public class Rummy5Player extends AppCompatActivity implements Animation.Animati
 
         if(table_detail != null)
         {
-            int boot_value = table_detail.optInt("boot_value",0);
-            int point_value = boot_value/80;
-            min_entry = point_value * 100;
-
-            Funtions.showToast(context,""+min_entry);
+            min_entry = (float) (table_detail.optDouble("boot_value", 0) * 1.25);
         }
 
         tv_gameid.setText("Game id : "+game_id);
@@ -2395,9 +2401,10 @@ public class Rummy5Player extends AppCompatActivity implements Animation.Animati
             JSONArray drop_card = jsonObject.optJSONArray("drop_card");
             JSONArray game_users_cards = jsonObject.optJSONArray("game_users_cards");
 
-            joker_card = jsonObject.optString("joker");
+            String activeJoker = jsonObject.optString("joker", "");
+            if (activeJoker.length() >= 3) joker_card = activeJoker;
 
-            if(joker_card.substring(joker_card.length() - 1).equalsIgnoreCase("_"))
+            if(joker_card.endsWith("_"))
             {
                 joker_card = removeLastChars(joker_card,1);
             }
@@ -2464,6 +2471,8 @@ public class Rummy5Player extends AppCompatActivity implements Animation.Animati
                 rltwinnersymble6.setVisibility(View.GONE);
                 rltwinnersymble7.setVisibility(View.GONE);
 
+                game_id = jsonObject.getString("active_game_id");
+                if (joker_card.length() < 3) return;
                 if(!isgamestarted && !isGamePacked)
                     API_CALL_getCardList();
                 else  if(isgamestarted && rlt_addcardview.getChildCount() <= 0)
@@ -2514,8 +2523,9 @@ public class Rummy5Player extends AppCompatActivity implements Animation.Animati
                         JSONObject drop_Object = drop_card.getJSONObject(i);
                         CardModel model = new CardModel();
                         model.Image = drop_Object.optString("card");
+                        if (model.Image.length() < 3 || joker_card.length() < 3) continue;
                         if(!model.Image.equals("") && !model.Image.equals("null") &&
-                                model.Image.substring(model.Image.length() - 1).equalsIgnoreCase("_"))
+                                model.Image.endsWith("_"))
                         {
                             model.Image = removeLastChars(model.Image,1);
                         }
@@ -2870,8 +2880,9 @@ public class Rummy5Player extends AppCompatActivity implements Animation.Animati
                     //                    model.card_id = cardObject.optString("id");
 
                     model.Image = cardObject.optString("card");
+                    if (model.Image.length() < 3) continue;
 
-                    if(model.Image.substring(model.Image.length() - 1).equalsIgnoreCase("_"))
+                    if(model.Image.endsWith("_"))
                     {
                         model.Image = removeLastChars(model.Image,1);
                     }
@@ -2883,6 +2894,7 @@ public class Rummy5Player extends AppCompatActivity implements Animation.Animati
 
 
                     model.card_group = cardObject.optString("card_group");
+                    if (model.card_group.length() != 2) model.card_group = model.Image.substring(0, 2);
 
                     cardModelArrayList.add(model);
                 }
@@ -3039,7 +3051,7 @@ public class Rummy5Player extends AppCompatActivity implements Animation.Animati
             temp_grouplist.clear();
 
         temp_grouplist = templist;
-        API_CALL_Sort_card_value(temp_grouplist.get(loopgroupsize),temp_grouplist.size(),loopgroupsize);
+        if (!temp_grouplist.isEmpty()) API_CALL_Sort_card_value(temp_grouplist.get(loopgroupsize),temp_grouplist.size(),loopgroupsize);
 
 
     }
@@ -3194,7 +3206,7 @@ public class Rummy5Player extends AppCompatActivity implements Animation.Animati
             return arrayList;
         }
 
-        if(joker_card.substring(joker_card.length() - 1).equalsIgnoreCase("_"))
+        if(joker_card.endsWith("_"))
         {
             joker_card = removeLastChars(joker_card,1);
         }
@@ -4233,7 +4245,7 @@ public class Rummy5Player extends AppCompatActivity implements Animation.Animati
                         CardModel model = new CardModel();
                         model.Image = card;
 
-                        if(model.Image.substring(model.Image.length() - 1).equalsIgnoreCase("_"))
+                        if(model.Image.endsWith("_"))
                         {
                             model.Image = removeLastChars(model.Image,1);
                         }
@@ -4339,7 +4351,7 @@ public class Rummy5Player extends AppCompatActivity implements Animation.Animati
                         CardModel model = new CardModel();
                         model.Image = card;
 
-                        if(model.Image.substring(model.Image.length() - 1).equalsIgnoreCase("_"))
+                        if(model.Image.endsWith("_"))
                         {
                             model.Image = removeLastChars(model.Image,1);
                         }
@@ -5154,7 +5166,7 @@ public class Rummy5Player extends AppCompatActivity implements Animation.Animati
         //        }
 
         loopgroupsize = 0;
-        API_CALL_Sort_card_value(temp_grouplist.get(loopgroupsize),temp_grouplist.size(),loopgroupsize);
+        if (!temp_grouplist.isEmpty()) API_CALL_Sort_card_value(temp_grouplist.get(loopgroupsize),temp_grouplist.size(),loopgroupsize);
 
 
     }
@@ -5557,7 +5569,7 @@ public class Rummy5Player extends AppCompatActivity implements Animation.Animati
         loopgroupsize = 0;
 
         animation_type = animationType;
-        API_CALL_Sort_card_value(temp_grouplist.get(loopgroupsize),temp_grouplist.size(),loopgroupsize);
+        if (!temp_grouplist.isEmpty()) API_CALL_Sort_card_value(temp_grouplist.get(loopgroupsize),temp_grouplist.size(),loopgroupsize);
 
     }
 

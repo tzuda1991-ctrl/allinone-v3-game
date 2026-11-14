@@ -62,7 +62,7 @@ class Rummy extends CI_Controller {
         $table_id = 0;
         if (!empty($tables)) {
             foreach ($tables as $t) {
-                if (!empty($t->rummy_table_id) && (int)($t->members ?? 0) < 5) {
+                if (!empty($t->rummy_table_id) && (int)($t->members ?? 0) < $no_of_players && !$this->Rummy_model->getActiveGameOnTable($t->rummy_table_id)) {
                     $table_id = $t->rummy_table_id;
                     break;
                 }
@@ -90,7 +90,7 @@ class Rummy extends CI_Controller {
                 'updated_date' => date('Y-m-d H:i:s')
             ]);
         }
-        $this->seat_bots($table_id, min($no_of_players, 2));
+        $this->seat_bots($table_id, $no_of_players === 5 ? 5 : 2);
         echo json_encode([
             'code' => 200,
             'message' => 'Success',
@@ -119,6 +119,12 @@ class Rummy extends CI_Controller {
             echo json_encode(['code' => 404, 'message' => 'Waiting for Opponent']);
             return;
         }
+        $need = count($users) * 13 + 1;
+        $cards = $this->Rummy_model->GetCards($need);
+        if (count($cards) < $need) {
+            echo json_encode(['code' => 409, 'message' => 'Not enough cards to deal this table']);
+            return;
+        }
         $joker_row = $this->Rummy_model->GetStartCards(1);
         $joker = !empty($joker_row) ? $joker_row[0]->cards : 'RS10';
         $game_id = $this->Rummy_model->Create([
@@ -128,8 +134,6 @@ class Rummy extends CI_Controller {
             'added_date' => date('Y-m-d H:i:s'),
             'updated_date' => date('Y-m-d H:i:s')
         ]);
-        $need = (count($users) * 13) + 1;
-        $cards = $this->Rummy_model->GetCards($need);
         $idx = 0;
         foreach ($users as $u) {
             $this->Rummy_model->AddGameCount($u->user_id);

@@ -242,12 +242,14 @@ class Game extends CI_Controller {
         $hand = $this->Game_model->GameUserCard($game->id, $player->id);
         if (!$hand) return;
         $turns = $this->Game_model->ChaalCount($game->id, $player->id);
-        if (!$hand->seen && (($table->maximum_blind > 0 && $turns >= $table->maximum_blind) || mt_rand(1, 100) <= 35)) {
+        $look_after = ($player->id + $game->id) % 3;
+        if ($table->maximum_blind > 0) $look_after = min($look_after, $table->maximum_blind);
+        if (!$hand->seen && $turns >= $look_after) {
             $this->Game_model->getMyCards($game->id, $player->id);
             $hand->seen = 1;
         }
         $rank = $hand->seen ? $this->Game_model->CardValue($hand->card1, $hand->card2, $hand->card3)[0] : 0;
-        $raise = $rank >= 2 && mt_rand(1, 100) <= 20;
+        $raise = $rank >= 2 && mt_rand(1, 100) <= ($rank >= 3 ? 40 : 16);
         $amount = $this->stake($game, $table, $hand->seen, $raise);
         if ($amount > $player->wallet || ($rank === 1 && $turns > 0 && mt_rand(1, 100) <= 22)) {
             $this->Game_model->PackGame($player->id, $game->id);
@@ -522,11 +524,11 @@ class Game extends CI_Controller {
             }
         }
 
-        // Stable seat names for this table, with visible computer-player attribution.
+        // Stable seat names within this hand, with visible computer-player attribution.
         $names = ['Asha','Kabir','Mira','Dev','Nisha','Ishan','Tara','Veer','Diya','Kunal','Riya','Arjun'];
         foreach ($table_users as $seat) {
             if ((int)$seat->user_type === 1) {
-                $seat->name = $names[((int)$table_id * 7 + (int)$seat->seat_position) % count($names)] . ' · AI';
+                $seat->name = $names[((int)$table_id * 7 + (int)$game_id + (int)$seat->seat_position) % count($names)] . ' · AI';
             }
         }
         foreach ($game_users as $hand) {

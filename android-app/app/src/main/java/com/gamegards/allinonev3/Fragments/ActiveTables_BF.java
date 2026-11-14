@@ -53,7 +53,9 @@ public class ActiveTables_BF extends BottomSheetDialogFragment {
 
     String game_tag = "";
     public ActiveTables_BF(String tag) {
-        this.game_tag = tag;
+        Bundle args = new Bundle();
+        args.putString("game_tag", tag);
+        setArguments(args);
         // Required empty public constructor
     }
 
@@ -103,6 +105,7 @@ public class ActiveTables_BF extends BottomSheetDialogFragment {
     @Override
     public void setupDialog(Dialog dialog, int style) {
         super.setupDialog(dialog, style);
+        game_tag = getArguments() == null ? TEENPATTI : getArguments().getString("game_tag", TEENPATTI);
         contentView = View.inflate(getContext(), R.layout.fragment_active_table, null);
         dialog.setContentView(contentView);
 
@@ -236,7 +239,8 @@ public class ActiveTables_BF extends BottomSheetDialogFragment {
 
                     if(game_tag.equals(RUMMY5) || game_tag.equals(RUMMY2))
                     {
-                        float poin_value = Float.parseFloat(model.getPoint_value());
+                        double poin_value = tableObject.optDouble("point_value", tableObject.optDouble("boot_value", 0) / 80d);
+                        if (poin_value <= 0 || Double.isNaN(poin_value)) continue;
                         model.setChaalLimit(""+(poin_value * 100));
                         if(game_tag.equals(RUMMY2))
                             model.setPotLimit("2");

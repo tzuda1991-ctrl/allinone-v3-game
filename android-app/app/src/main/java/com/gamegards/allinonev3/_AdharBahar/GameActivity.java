@@ -483,74 +483,26 @@ public class GameActivity extends AppCompatActivity {
 
     }
 
-    private void addCardsAndar(String cat,int countnumber) {
-
-        View view = LayoutInflater.from(context).inflate(R.layout.cards_layout,  null);
-        ImageView imgcards = view.findViewById(R.id.cards);
-        view.setTag(cat+"");
-        view.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                String tag = (String) view.getTag();
-                Toast.makeText(GameActivity.this , tag, Toast.LENGTH_LONG).show();
-            }
-        });
-        String uri1 = "@drawable/" + cat.toLowerCase();  // where myresource " +
-        int imageResource1 = getResources().getIdentifier(uri1, null,
-                getPackageName());
-        Picasso.with(context).load(imageResource1).into(imgcards);
-        LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        layoutParams.setMargins(0, 0, -33, 0);
-
-        ViewGroup.LayoutParams params = lnrandarpatte.getLayoutParams();
-        //  params.height = 100;
-
-        if (countnumber==0){
-            params.width = 140;
-        }else {
-            params.width = 140*countnumber;
+    private void dealCard(LinearLayout lane, String card) {
+        int image = getResources().getIdentifier(card.toLowerCase(java.util.Locale.ROOT), "drawable", getPackageName());
+        if (image == 0) return;
+        View face = LayoutInflater.from(this).inflate(R.layout.cards_layout, lane, false);
+        ((ImageView) face.findViewById(R.id.cards)).setImageResource(image);
+        face.setContentDescription(card);
+        lane.addView(face);
+        int width = Math.round(36 * getResources().getDisplayMetrics().density);
+        int n = lane.getChildCount();
+        int step = n > 1 ? Math.min(width, Math.max(0, lane.getWidth() - width) / (n - 1)) : width;
+        for (int i = 1; i < n; i++) {
+            View child = lane.getChildAt(i);
+            LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) child.getLayoutParams();
+            lp.leftMargin = step - width;
+            child.setLayoutParams(lp);
         }
-
-        lnrandarpatte.setLayoutParams(params);
-        lnrandarpatte.addView(view,layoutParams);
+        face.setTranslationY(-width * .35f);
+        face.setAlpha(.35f);
+        face.animate().translationY(0f).alpha(1f).setDuration(220).start();
         PlaySaund(R.raw.teenpatticardflip_android);
-
-    }
-
-    private void addCardsBahar(String cat ,int countnumber ) {
-
-        View view = LayoutInflater.from(context).inflate(R.layout.cards_layout,  null);
-        ImageView imgcards = view.findViewById(R.id.cards);
-        view.setTag(cat+"");
-        view.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                String tag = (String) view.getTag();
-                Toast.makeText(GameActivity.this , tag, Toast.LENGTH_LONG).show();
-            }
-        });
-        String uri1 = "@drawable/" + cat.toLowerCase();  // where myresource " +
-        int imageResource1 = getResources().getIdentifier(uri1, null,
-                getPackageName());
-        Picasso.with(context).load(imageResource1).into(imgcards);
-        LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        layoutParams.setMargins(0, 0, -33, 0);
-        ViewGroup.LayoutParams params = lnrbaharpatte.getLayoutParams();
-        // params.height = 100;
-
-        if (countnumber==0){
-            params.width = 140;
-        }else {
-            params.width = 140*countnumber;
-        }
-
-        lnrbaharpatte.setLayoutParams(params);
-        lnrbaharpatte.addView(view,layoutParams);
-        PlaySaund(R.raw.teenpatticardflip_android);
-
-
     }
 
     public void PlaySaund(int saund) {
@@ -719,6 +671,7 @@ public class GameActivity extends AppCompatActivity {
 
 
                                 JSONArray arraypgame_cards = jsonObject.getJSONArray("game_cards");
+                                aaraycards.clear();
 
                                 for (int i = 0; i < arraypgame_cards.length() ; i++) {
                                     JSONObject cardsObject = arraypgame_cards.getJSONObject(i);
@@ -884,6 +837,7 @@ public class GameActivity extends AppCompatActivity {
 
                                             @Override
                                             public void onTick(long millisUntilFinished) {
+                                                if (countvaue >= aaraycards.size()) return;
                                                 isCardsDisribute = true;
                                                 int y = countvaue % 2;
 
@@ -941,7 +895,7 @@ public class GameActivity extends AppCompatActivity {
                                                     }
 
                                                     //   Log.v("width-1" , locationlnrandarwidth[0] +" / "+locationimgandarwidth[0]);
-                                                    addCardsAndar(aaraycards.get(countvaue),countvaue);
+                                                    dealCard(lnrandarpatte, aaraycards.get(countvaue));
 
 
 
@@ -989,7 +943,7 @@ public class GameActivity extends AppCompatActivity {
                                                     }
 
                                                     //   Log.v("width" , locationimgbaharwidth +" / "+locationlnrbaharwidth[0]);
-                                                    addCardsBahar(aaraycards.get(countvaue),countvaue);
+                                                    dealCard(lnrbaharpatte, aaraycards.get(countvaue));
                                                 }
 
 
