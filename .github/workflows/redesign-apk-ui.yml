@@ -38,12 +38,628 @@ jobs:
             exit 1
           fi
 
+      - name: Update Backend Game.php (Fix Offline-Ghost Turn Freeze & Timeout)
+        run: |
+          if [ -d "application/controllers/api" ]; then
+            cat << 'EOF' > application/controllers/api/Game.php
+          <?php
+          defined('BASEPATH') OR exit('No direct script access allowed');
+
+          class Game extends CI_Controller {
+              public function __construct() {
+                  parent::__construct();
+                  $this->load->model(['Game_model', 'Users_model', 'Setting_model']);
+                  @$this->db->query("SET SESSION sql_mode=''");
+                  @$this->db->set('wallet', 100000)->where('user_type', 0)->where('wallet <', 0)->update('tbl_users');
+                  @$this->db->set('wallet', 50000)->where('user_type', 1)->where('wallet <', 5000)->update('tbl_users');
+                  header('Content-Type: application/json');
+              }
+
+              private function resolve_table_id($user_id) {
+                  $table_id = $this->input->post('table_id');
+                  if (!$table_id && $user_id) {
+                      $u = $this->Users_model->UserProfile($user_id);
+                      if (!empty($u) && !empty($u[0]->table_id)) {
+                          $table_id = $u[0]->table_id;
+                      }
+                  }
+                  return $table_id;
+              }
+
+              private function resolve_game_id($user_id, $table_id = 0) {
+                  $game_id = $this->input->post('game_id');
+                  if ($game_id) return $game_id;
+                  if (!$table_id) $table_id = $this->resolve_table_id($user_id);
+                  if ($table_id) {
+                      $active = $this->Game_model->getActiveGameOnTable($table_id);
+                      if ($active) return $active->id;
+                  }
+                  return 0;
+              }
+
+              private function cleanup_stale_table_users($keep_user_id = 0) {
+                  $cutoff = date('Y-m-d H:i:s', time() - 180);
+                  $stale = $this->db->select('tbl_table_user.table_id, tbl_table_user.user_id')
+                      ->from('tbl_table_user')
+                      ->join('tbl_users', 'tbl_users.id = tbl_table_user.user_id')
+                      ->where('tbl_table_user.isDeleted', 0)
+                      ->where('tbl_users.user_type', 0)
+                      ->where('tbl_table_user.updated_date <', $cutoff)
+                      ->get()
+                      ->result();
+                  foreach ($stale as $row) {
+                      if ($keep_user_id && (string)$row->user_id === (string)$keep_user_id) continue;
+                      $active = $this->Game_model->getActiveGameOnTable($row->table_id);
+                      if (!empty($active) && (time() - strtotime($active->updated_date)) < 60) continue;
+                      $this->Game_model->RemoveTableUser(['table_id' => $row->table_id, 'user_id' => $row->user_id]);
+                  }
+                  $orphans = $this->db->select('id')
+                      ->from('tbl_users')
+                      ->where('user_type', 0)
+                      ->where('table_id !=', 0)
+                      ->get()
+                      ->result();
+                  foreach ($orphans as $o) {
+                      if ($keep_user_id && (string)$o->id === (string)$keep_user_id) continue;
+                      $live_seat = $this->db->where('user_id', $o->id)
+                          ->where('isDeleted', 0)
+                          ->where('updated_date >=', $cutoff)
+                          ->get('tbl_table_user')
+                          ->row();
+                      if (!$live_seat) {
+                          $this->db->set('table_id', 0)->where('id', $o->id)->update('tbl_users');
+                      }
+                  }
+              }
+
+              private function seat_bots($table_id, $target_count = 5) {
+                  $current = $this->Game_model->TableUser($table_id);
+                  if (count($current) >= 5) return;
+                  $existing_ids = [];
+                  foreach ($current as $cu) {
+                      $existing_ids[] = $cu->user_id;
+                  }
+                  $needed = $target_count - count($current);
+                  if ($needed <= 0) return;
+
+                  $bots = $this->db->where('isDeleted', 0)->where('user_type', 1)->limit(10)->get('tbl_users')->result();
+                  if (count($bots) < 4) {
+                      $botDefs = [
+                          ['Ravi Bot', 'm', 'm_1.png'],
+                          ['Priya Bot', 'f', 'f_1.png'],
+                          ['Amit Bot', 'm', 'm_2.png'],
+                          ['Neha Bot', 'f', 'f_2.png']
+                      ];
+                      foreach ($botDefs as $bd) {
+                          $exists = $this->db->where('name', $bd[0])->where('user_type', 1)->get('tbl_users')->row();
+                          if (!$exists) {
+                              $this->Users_model->AddBot([
+                                  'name' => $bd[0],
+                                  'user_type' => 1,
+                                  'mobile' => '',
+                                  'gender' => $bd[1],
+                                  'profile_pic' => $bd[2],
+                                  'wallet' => 50000,
+                                  'added_date' => date('Y-m-d H:i:s'),
+                                  'updated_date' => date('Y-m-d H:i:s')
+                              ]);
+                          }
+                      }
+                      $bots = $this->db->where('isDeleted', 0)->where('user_type', 1)->limit(10)->get('tbl_users')->result();
+                  }
+
+                  foreach ($bots as $bot) {
+                      if ($needed <= 0) break;
+                      if (in_array($bot->id, $existing_ids)) continue;
+                      $seat = $this->Game_model->GetSeatOnTable($table_id);
+                      if (!$seat) break;
+                      if ($bot->wallet < 5000) {
+                          $this->db->set('wallet', 50000)->where('id', $bot->id)->update('tbl_users');
+                      }
+                      $this->Game_model->AddTableUser([
+                          'table_id' => $table_id,
+                          'user_id' => $bot->id,
+                          'seat_position' => $seat,
+                          'added_date' => date('Y-m-d H:i:s'),
+                          'updated_date' => date('Y-m-d H:i:s')
+                      ]);
+                      $existing_ids[] = $bot->id;
+                      $needed--;
+                  }
+              }
+
+              private function ensure_user_on_table($table_id, $user_id) {
+                  if (!$user_id) return;
+                  $existing = $this->db->where('table_id', $table_id)->where('user_id', $user_id)->where('isDeleted', 0)->get('tbl_table_user')->row();
+                  if (!$existing) {
+                      $seat = $this->Game_model->GetSeatOnTable($table_id);
+                      $this->Game_model->AddTableUser([
+                          'table_id' => $table_id,
+                          'user_id' => $user_id,
+                          'seat_position' => $seat ?: 1,
+                          'added_date' => date('Y-m-d H:i:s'),
+                          'updated_date' => date('Y-m-d H:i:s')
+                      ]);
+                  } else {
+                      $this->db->set('updated_date', date('Y-m-d H:i:s'))->where('id', $existing->id)->update('tbl_table_user');
+                      $this->db->set('table_id', $table_id)->where('id', $user_id)->update('tbl_users');
+                  }
+              }
+
+              private function get_turn_user_id($game_id, $game_users, $last_log) {
+                  if (empty($game_users)) return '0';
+                  $unpacked_count = 0;
+                  $single_active = '0';
+                  foreach ($game_users as $gu) {
+                      if ((int)$gu->packed === 0) {
+                          $unpacked_count++;
+                          $single_active = (string)$gu->user_id;
+                      }
+                  }
+                  if ($unpacked_count === 0) return '0';
+                  if ($unpacked_count === 1) return $single_active;
+                  $n = count($game_users);
+                  $start_idx = 0;
+                  if (!empty($last_log)) {
+                      $last_uid = (string)$last_log->user_id;
+                      foreach ($game_users as $idx => $gu) {
+                          if ((string)$gu->user_id === $last_uid) {
+                              $start_idx = ($idx + 1) % $n;
+                              break;
+                          }
+                      }
+                  }
+                  for ($i = 0; $i < $n; $i++) {
+                      $cand = $game_users[($start_idx + $i) % $n];
+                      if ((int)$cand->packed === 0) {
+                          return (string)$cand->user_id;
+                      }
+                  }
+                  return $single_active;
+              }
+
+              private function resolve_show_winner($game_id, $active_users) {
+                  if (empty($active_users)) return '0';
+                  $best = $active_users[0];
+                  $best_val = $this->Game_model->CardValue($best->card1, $best->card2, $best->card3);
+                  for ($i = 1; $i < count($active_users); $i++) {
+                      $cand = $active_users[$i];
+                      $cand_val = $this->Game_model->CardValue($cand->card1, $cand->card2, $cand->card3);
+                      $res = $this->Game_model->getWinnerPosition($best_val, $cand_val);
+                      if ($res === 1) {
+                          $best = $cand;
+                          $best_val = $cand_val;
+                      }
+                  }
+                  $game = $this->Game_model->View($game_id);
+                  $setting = $this->Setting_model->Setting();
+                  $comm = $setting->admin_commission ?? 10;
+                  $this->Game_model->MakeWinner($game_id, $game->amount, $best->user_id, $comm);
+                  return $best->user_id;
+              }
+
+              public function get_table_master() {
+                  $tables = $this->Game_model->getTableMaster();
+                  echo json_encode(['code' => 200, 'message' => 'Success', 'table_data' => $tables ?: []]);
+              }
+
+              public function get_table($is_private = 0) {
+                  $user_id = $this->input->post('user_id');
+                  $boot_value = (float)($this->input->post('boot_value') ?: 10);
+                  if ($boot_value <= 0) $boot_value = 10;
+                  if ($user_id) {
+                      $u = $this->Users_model->UserProfile($user_id);
+                      if (!empty($u)) {
+                          if ((float)$u[0]->wallet < $boot_value) {
+                              echo json_encode(['code' => 406, 'message' => 'Insufficient Coins for this Boot']);
+                              return;
+                          }
+                          if (!empty($u[0]->table_id)) {
+                              $this->Game_model->RemoveTableUser(['table_id' => $u[0]->table_id, 'user_id' => $user_id]);
+                          }
+                      }
+                  }
+                  $this->cleanup_stale_table_users($user_id);
+                  $tables = $is_private ? [] : $this->Game_model->getCustomizeActiveTable($boot_value);
+                  $table_id = 0;
+                  if (!empty($tables)) {
+                      foreach ($tables as $t) {
+                          $tid = isset($t->table_id) ? $t->table_id : (isset($t->id) ? $t->id : 0);
+                          $members = isset($t->members) ? (int)$t->members : 0;
+                          if ($tid && $members < 5) {
+                              $existing_games = $this->Game_model->getAllGameOnTable($tid);
+                              if (empty($existing_games)) {
+                                  $t_users = $this->Game_model->TableUser($tid);
+                                  $has_offline_human = false;
+                                  foreach ($t_users as $tu) {
+                                      if ((int)$tu->user_type === 0 && (string)$tu->user_id !== (string)$user_id && (time() - strtotime($tu->updated_date)) > 45) {
+                                          $has_offline_human = true;
+                                          break;
+                                      }
+                                  }
+                                  if (!$has_offline_human) {
+                                      $table_id = $tid;
+                                      break;
+                                  }
+                              }
+                          }
+                      }
+                  }
+                  if (!$table_id) {
+                      $table_id = $this->Game_model->CreateTable([
+                          'boot_value' => $boot_value,
+                          'maximum_blind' => 4,
+                          'chaal_limit' => $boot_value * 128,
+                          'pot_limit' => $boot_value * 1024,
+                          'private' => $is_private,
+                          'added_date' => date('Y-m-d H:i:s'),
+                          'updated_date' => date('Y-m-d H:i:s')
+                      ]);
+                  }
+                  $this->ensure_user_on_table($table_id, $user_id);
+                  $this->seat_bots($table_id, 5);
+                  $table_users = $this->Game_model->TableUser($table_id);
+                  echo json_encode([
+                      'code' => 200,
+                      'message' => 'Success',
+                      'table_data' => [['table_id' => (string)$table_id]],
+                      'table_users' => $table_users ?: []
+                  ]);
+              }
+
+              public function get_customise_table() { $this->get_table(0); }
+              public function get_private_table() { $this->get_table(1); }
+
+              public function join_table() {
+                  $user_id = $this->input->post('user_id');
+                  $table_id = $this->resolve_table_id($user_id);
+                  $this->ensure_user_on_table($table_id, $user_id);
+                  $this->seat_bots($table_id, 5);
+                  echo json_encode(['code' => 200, 'message' => 'Joined Table', 'table_data' => [['table_id' => (string)$table_id]]]);
+              }
+
+              public function start_game() {
+                  $user_id = $this->input->post('user_id');
+                  $table_id = $this->resolve_table_id($user_id);
+                  if (!$table_id) {
+                      echo json_encode(['code' => 404, 'message' => 'Table Not Found']);
+                      return;
+                  }
+                  if ($user_id) $this->ensure_user_on_table($table_id, $user_id);
+                  $this->seat_bots($table_id, 5);
+
+                  $active = $this->Game_model->getActiveGameOnTable($table_id);
+                  if (!empty($active)) {
+                      echo json_encode(['code' => 200, 'message' => 'Game In Progress', 'game_id' => (string)$active->id]);
+                      return;
+                  }
+                  $table = $this->Game_model->isTableAvail($table_id);
+                  $boot = $table ? (float)$table->boot_value : 10;
+                  $users = $this->Game_model->TableUser($table_id);
+                  if (count($users) < 2) {
+                      echo json_encode(['code' => 404, 'message' => 'Waiting for Opponent']);
+                      return;
+                  }
+                  foreach ($users as $u) {
+                      if ((int)$u->user_type === 1 && (float)$u->wallet < ($boot * 5)) {
+                          $this->db->set('wallet', max(50000, $boot * 20))->where('id', $u->user_id)->update('tbl_users');
+                      } elseif ((int)$u->user_type === 0 && (float)$u->wallet < $boot) {
+                          echo json_encode(['code' => 406, 'message' => 'Insufficient Coins']);
+                          return;
+                      }
+                  }
+                  $game_id = $this->Game_model->Create([
+                      'table_id' => $table_id,
+                      'amount' => $boot * count($users),
+                      'added_date' => date('Y-m-d H:i:s'),
+                      'updated_date' => date('Y-m-d H:i:s')
+                  ]);
+                  $cards = $this->Game_model->GetCards(count($users) * 3);
+                  $idx = 0;
+                  foreach ($users as $u) {
+                      $this->Game_model->MinusWallet($u->user_id, $boot);
+                      $this->Game_model->AddGameCount($u->user_id);
+                      $this->Game_model->GiveGameCards([
+                          'game_id' => $game_id,
+                          'user_id' => $u->user_id,
+                          'card1' => $cards[$idx++]->cards,
+                          'card2' => $cards[$idx++]->cards,
+                          'card3' => $cards[$idx++]->cards,
+                          'packed' => 0,
+                          'seen' => 0,
+                          'added_date' => date('Y-m-d H:i:s'),
+                          'updated_date' => date('Y-m-d H:i:s')
+                      ]);
+                  }
+                  $starter_uid = $users[count($users) - 1]->user_id;
+                  foreach ($users as $uIdx => $uRow) {
+                      if (isset($uRow->user_type) && (int)$uRow->user_type === 0) {
+                          if (!$user_id || (string)$uRow->user_id === (string)$user_id) {
+                              $prevIdx = ($uIdx - 1 + count($users)) % count($users);
+                              $starter_uid = $users[$prevIdx]->user_id;
+                              break;
+                          }
+                      }
+                  }
+                  $this->db->insert('tbl_game_log', [
+                      'user_id' => $starter_uid,
+                      'game_id' => $game_id,
+                      'seen' => 0,
+                      'action' => 0,
+                      'amount' => $boot,
+                      'added_date' => date('Y-m-d H:i:s')
+                  ]);
+                  echo json_encode(['code' => 200, 'message' => 'Game Started', 'game_id' => (string)$game_id]);
+              }
+
+              public function status() {
+                  $user_id = $this->input->post('user_id');
+                  $table_id = $this->resolve_table_id($user_id);
+                  if ($user_id && $table_id) {
+                      $this->db->set('updated_date', date('Y-m-d H:i:s'))
+                          ->where('table_id', $table_id)
+                          ->where('user_id', $user_id)
+                          ->where('isDeleted', 0)
+                          ->update('tbl_table_user');
+                  }
+                  $table = $table_id ? $this->Game_model->isTableAvail($table_id) : null;
+                  $boot = $table ? (float)$table->boot_value : 10;
+                  $table_users = $table_id ? $this->Game_model->TableUser($table_id) : [];
+                  $active = $table_id ? $this->Game_model->getActiveGameOnTable($table_id) : null;
+
+                  $game_id = $active ? $active->id : 0;
+                  $game_status = '0';
+                  $winner_id = '0';
+                  $chaal_uid = '0';
+                  $game_users = [];
+                  $log = [];
+                  $cards = [];
+                  $table_amount = (string)$boot;
+                  $game_amount = '0';
+
+                  if ($active) {
+                      $game_status = '1';
+                      $game_users = $this->Game_model->GameAllUser($game_id);
+                      $log = $this->Game_model->GameLog($game_id, 1);
+                      $last_log = !empty($log) ? $log[0] : null;
+                      $chaal_uid = $this->get_turn_user_id($game_id, $game_users, $last_log);
+
+                      if ($chaal_uid !== '0') {
+                          $turn_user = $this->Users_model->UserProfile($chaal_uid);
+                          $last_ts = $last_log ? strtotime($last_log->added_date) : strtotime($active->added_date);
+                          $delay = ($last_log && (int)$last_log->action === 0) ? 4 : 2;
+                          if (!empty($turn_user) && (int)$turn_user[0]->user_type === 1 && (time() - $last_ts) >= $delay) {
+                              if ((float)$turn_user[0]->wallet < ($boot * 5)) {
+                                  $this->db->set('wallet', max(50000, $boot * 20))->where('id', $chaal_uid)->update('tbl_users');
+                              }
+                              $unpacked = array_values(array_filter($game_users, function($g) { return (int)$g->packed === 0; }));
+                              if (count($unpacked) <= 1) {
+                                  $this->resolve_show_winner($game_id, $unpacked);
+                              } elseif ((float)$active->amount >= ($boot * 12)) {
+                                  $this->Game_model->Show($game_id, $boot, $chaal_uid);
+                                  $this->resolve_show_winner($game_id, $unpacked);
+                              } else {
+                                  $this->Game_model->Chaal($game_id, $boot, $chaal_uid);
+                              }
+                              $active = $this->Game_model->View($game_id);
+                              $game_users = $this->Game_model->GameAllUser($game_id);
+                              $log = $this->Game_model->GameLog($game_id, 1);
+                              $last_log = !empty($log) ? $log[0] : null;
+                              if ((int)$active->winner_id > 0) {
+                                  $game_status = '2';
+                                  $winner_id = (string)$active->winner_id;
+                                  $chaal_uid = '0';
+                              } else {
+                                  $chaal_uid = $this->get_turn_user_id($game_id, $game_users, $last_log);
+                              }
+                          } elseif (!empty($turn_user) && (int)$turn_user[0]->user_type === 0) {
+                              $seat_row = $this->db->where('table_id', $table_id)->where('user_id', $chaal_uid)->where('isDeleted', 0)->get('tbl_table_user')->row();
+                              $is_offline_ghost = ($user_id && (string)$chaal_uid !== (string)$user_id) && (!$seat_row || (time() - strtotime($seat_row->updated_date)) > 20);
+                              $timeout_sec = $is_offline_ghost ? 3 : 31;
+                              if ((time() - $last_ts) >= $timeout_sec) {
+                                  $this->Game_model->PackGame($chaal_uid, $game_id, 1);
+                                  if ($is_offline_ghost) {
+                                      $this->Game_model->RemoveTableUser(['table_id' => $table_id, 'user_id' => $chaal_uid]);
+                                      $table_users = $table_id ? $this->Game_model->TableUser($table_id) : [];
+                                  }
+                                  $game_users = $this->Game_model->GameAllUser($game_id);
+                                  $unpacked = array_values(array_filter($game_users, function($g) { return (int)$g->packed === 0; }));
+                                  if (count($unpacked) === 1) {
+                                      $this->resolve_show_winner($game_id, $unpacked);
+                                  } elseif (empty($unpacked)) {
+                                      $fallback_win = $user_id ?: $chaal_uid;
+                                      $this->db->set('winner_id', $fallback_win)->set('updated_date', date('Y-m-d H:i:s'))->where('id', $game_id)->update('tbl_game');
+                                  }
+                                  $active = $this->Game_model->View($game_id);
+                                  $game_users = $this->Game_model->GameAllUser($game_id);
+                                  $log = $this->Game_model->GameLog($game_id, 1);
+                                  $last_log = !empty($log) ? $log[0] : null;
+                                  if ((int)$active->winner_id > 0) {
+                                      $game_status = '2';
+                                      $winner_id = (string)$active->winner_id;
+                                      $chaal_uid = '0';
+                                  } else {
+                                      $chaal_uid = $this->get_turn_user_id($game_id, $game_users, $last_log);
+                                  }
+                              }
+                          }
+                      }
+
+                      $game_amount = (string)$active->amount;
+                      $table_amount = $last_log ? (string)$last_log->amount : (string)$boot;
+                      if ($user_id) {
+                          $my_row = $this->db->where('game_id', $game_id)->where('user_id', $user_id)->get('tbl_game_card')->row();
+                          if ($my_row && (int)$my_row->seen === 1) {
+                              $cards = [$my_row];
+                          }
+                      }
+                  } else {
+                      $all_games = $table_id ? $this->Game_model->getAllGameOnTable($table_id) : [];
+                      if (!empty($all_games) && (int)$all_games[0]->winner_id > 0 && (time() - strtotime($all_games[0]->updated_date)) <= 5) {
+                          $last_g = $all_games[0];
+                          $game_id = $last_g->id;
+                          $game_status = '2';
+                          $winner_id = (string)$last_g->winner_id;
+                          $game_amount = (string)$last_g->amount;
+                          $game_users = $this->Game_model->GameAllUser($game_id);
+                          $log = $this->Game_model->GameLog($game_id, 1);
+                      }
+                  }
+
+                  $resp = [
+                      'code' => 200,
+                      'message' => 'Success',
+                      'table_users' => $table_users ?: [],
+                      'all_users' => $table_users ?: [],
+                      'table_detail' => json_encode($table ?: ['boot_value' => (string)$boot, 'maximum_blind' => '4', 'chaal_limit' => (string)($boot * 128), 'pot_limit' => (string)($boot * 1024)]),
+                      'game_gifts' => $this->Users_model->GiftList($table_id ?: 0) ?: [],
+                      'game_users' => $game_users ?: [],
+                      'active_game_id' => (string)$game_id,
+                      'game_status' => $game_status,
+                      'table_amount' => $table_amount,
+                      'game_amount' => $game_amount,
+                      'cards' => $cards ?: [],
+                      'slide_show' => $game_id ? $this->Game_model->GetSlideShow($game_id) : []
+                  ];
+                  if ($game_status === '1') {
+                      $resp['chaal'] = (string)$chaal_uid;
+                  } elseif ($game_status === '2' && $winner_id !== '0') {
+                      $resp['chaal'] = '0';
+                      $resp['winner_user_id'] = (string)$winner_id;
+                  }
+                  if (!empty($log)) {
+                      $resp['game_log'] = $log;
+                  }
+                  echo json_encode($resp);
+              }
+
+              public function see_card() {
+                  $user_id = $this->input->post('user_id');
+                  $game_id = $this->resolve_game_id($user_id);
+                  $cards = $game_id ? $this->Game_model->getMyCards($game_id, $user_id) : [];
+                  echo json_encode(['code' => 200, 'message' => 'Success', 'cards' => $cards ?: []]);
+              }
+
+              public function chaal() {
+                  $user_id = $this->input->post('user_id');
+                  $table_id = $this->resolve_table_id($user_id);
+                  $game_id = $this->resolve_game_id($user_id, $table_id);
+                  $amount = $this->input->post('amount');
+                  if (!$amount && $game_id) {
+                      $table = $table_id ? $this->Game_model->isTableAvail($table_id) : null;
+                      $boot = $table ? (float)$table->boot_value : 10;
+                      $last_log = $this->Game_model->LastChaal($game_id);
+                      $base = $last_log ? (float)$last_log->amount : $boot;
+                      if ($base <= 0) $base = $boot;
+                      $amount = ($this->input->post('plus') === '1') ? ($base * 2) : $base;
+                  }
+                  $u = $user_id ? $this->Users_model->UserProfile($user_id) : [];
+                  if (!empty($u) && (float)$u[0]->wallet < (float)$amount) {
+                      echo json_encode(['code' => 406, 'message' => 'Insufficient Coins']);
+                      return;
+                  }
+                  if ($game_id) {
+                      $this->Game_model->Chaal($game_id, (float)$amount, $user_id);
+                  }
+                  echo json_encode(['code' => 200, 'message' => 'Chaal Played']);
+              }
+
+              public function pack_game() {
+                  $user_id = $this->input->post('user_id');
+                  $game_id = $this->resolve_game_id($user_id);
+                  if ($game_id) {
+                      $this->Game_model->PackGame($user_id, $game_id);
+                      $game_users = $this->Game_model->GameAllUser($game_id);
+                      $unpacked = array_values(array_filter($game_users, function($g) { return (int)$g->packed === 0; }));
+                      if (count($unpacked) === 1) {
+                          $this->resolve_show_winner($game_id, $unpacked);
+                      }
+                  }
+                  echo json_encode(['code' => 200, 'message' => 'Packed']);
+              }
+
+              public function show_game() {
+                  $user_id = $this->input->post('user_id');
+                  $table_id = $this->resolve_table_id($user_id);
+                  $game_id = $this->resolve_game_id($user_id, $table_id);
+                  $table = $table_id ? $this->Game_model->isTableAvail($table_id) : null;
+                  $boot = $table ? (float)$table->boot_value : 10;
+                  $amount = (float)($this->input->post('amount') ?: $boot);
+                  if ($game_id) {
+                      $this->Game_model->Show($game_id, $amount, $user_id);
+                      $game_users = $this->Game_model->GameAllUser($game_id);
+                      $unpacked = array_values(array_filter($game_users, function($g) { return (int)$g->packed === 0; }));
+                      if (!empty($unpacked)) {
+                          $this->resolve_show_winner($game_id, $unpacked);
+                      }
+                  }
+                  echo json_encode(['code' => 200, 'message' => 'Show Declared']);
+              }
+
+              public function slide_show() {
+                  $user_id = $this->input->post('user_id');
+                  $game_id = $this->resolve_game_id($user_id);
+                  $prev_id = $this->input->post('prev_id') ?: 0;
+                  if ($game_id) $this->Game_model->SlideShow($game_id, $user_id, $prev_id);
+                  echo json_encode(['code' => 200, 'message' => 'Slide Show Sent']);
+              }
+
+              public function do_slide_show() {
+                  $slide_id = $this->input->post('slide_id');
+                  $type = $this->input->post('type') ?: 1;
+                  $this->Game_model->UpdateSlideShow($slide_id, $type);
+                  echo json_encode(['code' => 200, 'message' => 'Updated']);
+              }
+
+              public function switch_table() {
+                  $user_id = $this->input->post('user_id');
+                  $table_id = $this->resolve_table_id($user_id);
+                  if ($table_id && $user_id) {
+                      $this->Game_model->RemoveTableUser(['table_id' => $table_id, 'user_id' => $user_id]);
+                  }
+                  $this->get_table(0);
+              }
+
+              public function leave_table() {
+                  $user_id = $this->input->post('user_id');
+                  $table_id = $this->resolve_table_id($user_id);
+                  if ($table_id && $user_id) {
+                      $this->Game_model->RemoveTableUser(['table_id' => $table_id, 'user_id' => $user_id]);
+                  }
+                  echo json_encode(['code' => 200, 'message' => 'Left Table']);
+              }
+
+              public function chat() {
+                  $game_id = $this->input->post('game_id');
+                  $chat = $this->input->post('chat');
+                  $user_id = $this->input->post('user_id');
+                  if (!empty($chat)) {
+                      $this->Game_model->Chat(['game_id' => $game_id, 'chat' => $chat, 'user_id' => $user_id, 'added_date' => date('Y-m-d H:i:s')]);
+                  }
+                  $list = $this->Game_model->ChatList($game_id);
+                  echo json_encode(['code' => 200, 'message' => 'Success', 'list' => $list ?: []]);
+              }
+
+              public function tip() {
+                  $amount = (float)$this->input->post('tip');
+                  $user_id = $this->input->post('user_id');
+                  $table_id = $this->input->post('table_id');
+                  $gift_id = $this->input->post('gift_id') ?: 0;
+                  $to_user_id = $this->input->post('to_user_id') ?: 0;
+                  $this->Users_model->TipAdmin($amount, $user_id, $table_id, $gift_id, $to_user_id);
+                  echo json_encode(['code' => 200, 'message' => 'Tip Sent']);
+              }
+          }
+          EOF
+            echo "Updated application/controllers/api/Game.php with ghost auto-pack & turn timeout."
+          fi
+
       - name: Install SVG Vector Renderer (librsvg2-bin)
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq librsvg2-bin fonts-dejavu-core
 
-      - name: Apply Midnight Obsidian, Emerald Felt & Gold UI Redesign
+      - name: Apply Refined Casino Lobby Posters, 3D Table Restoration & Smooth Animations
         working-directory: ${{ steps.locate.outputs.dir }}
         run: |
           python3 - << 'PYEOF'
@@ -52,12 +668,14 @@ jobs:
           res_dir = 'app/src/main/res'
           drawable_dir = os.path.join(res_dir, 'drawable')
           xxhdpi_dir = os.path.join(res_dir, 'drawable-xxhdpi')
+          anim_dir = os.path.join(res_dir, 'anim')
           layout_dir = os.path.join(res_dir, 'layout')
           values_dir = os.path.join(res_dir, 'values')
           java_root = 'app/src/main/java/com/gamegards/allinonev3'
 
           os.makedirs(drawable_dir, exist_ok=True)
           os.makedirs(xxhdpi_dir, exist_ok=True)
+          os.makedirs(anim_dir, exist_ok=True)
 
           def write_file(path, content):
               cleaned = re.sub(r'(?m)^          ', '', content).lstrip('\n')
@@ -71,21 +689,17 @@ jobs:
               os.remove(svg_path)
 
           # ------------------------------------------------------------------
-          # 1. XML Drawables (Shapes, Layer-Lists, Vectors)
+          # 1. XML Drawables & Smooth Animations
           # ------------------------------------------------------------------
           drawables = {
               'casino_lobby_background.xml': """<?xml version="1.0" encoding="utf-8"?>
           <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
               <item>
-                  <shape android:shape="rectangle">
-                      <gradient android:angle="135" android:startColor="#060A13" android:centerColor="#0E1729" android:endColor="#060A13" />
-                  </shape>
+                  <bitmap android:src="@drawable/bghome" android:gravity="fill" />
               </item>
-              <item android:top="74dp" android:bottom="10dp" android:left="10dp" android:right="10dp">
+              <item>
                   <shape android:shape="rectangle">
-                      <gradient android:angle="90" android:startColor="#08101E" android:centerColor="#0C1B2B" android:endColor="#091221" />
-                      <corners android:radius="20dp" />
-                      <stroke android:width="1dp" android:color="#26D4A843" />
+                      <gradient android:angle="90" android:startColor="#88040812" android:centerColor="#4D070E1D" android:endColor="#99040812" />
                   </shape>
               </item>
           </layer-list>""",
@@ -94,59 +708,22 @@ jobs:
           <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
               <item>
                   <shape android:shape="rectangle">
-                      <gradient android:angle="0" android:startColor="#F0080D18" android:centerColor="#F0101A2D" android:endColor="#F0080D18" />
+                      <gradient android:angle="0" android:startColor="#EB070C17" android:centerColor="#EB0F192B" android:endColor="#EB070C17" />
                   </shape>
               </item>
               <item android:top="-2dp" android:left="-2dp" android:right="-2dp">
                   <shape android:shape="rectangle">
                       <solid android:color="@android:color/transparent" />
-                      <stroke android:width="1dp" android:color="#66D4A843" />
+                      <stroke android:width="1.2dp" android:color="#88D4A843" />
                   </shape>
               </item>
           </layer-list>""",
 
               'casino_table_backdrop.xml': """<?xml version="1.0" encoding="utf-8"?>
-          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-              <gradient
-                  android:type="radial"
-                  android:gradientRadius="650dp"
-                  android:centerX="0.5"
-                  android:centerY="0.45"
-                  android:startColor="#102136"
-                  android:centerColor="#09111F"
-                  android:endColor="#04070E" />
-          </shape>""",
+          <bitmap xmlns:android="http://schemas.android.com/apk/res/android" android:src="@drawable/bgnew1" android:gravity="fill" />""",
 
               'casino_emerald_table.xml': """<?xml version="1.0" encoding="utf-8"?>
-          <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-              <item android:top="6dp" android:left="6dp" android:right="6dp" android:bottom="0dp">
-                  <shape android:shape="rectangle">
-                      <solid android:color="#66000000" />
-                      <corners android:radius="180dp" />
-                  </shape>
-              </item>
-              <item android:top="2dp" android:left="2dp" android:right="2dp" android:bottom="6dp">
-                  <shape android:shape="rectangle">
-                      <gradient android:angle="90" android:startColor="#1E0E09" android:centerColor="#3C1D13" android:endColor="#25110B" />
-                      <corners android:radius="180dp" />
-                      <stroke android:width="2dp" android:color="#8F6A28" />
-                  </shape>
-              </item>
-              <item android:top="16dp" android:left="18dp" android:right="18dp" android:bottom="20dp">
-                  <shape android:shape="rectangle">
-                      <gradient android:angle="90" android:startColor="#042B1D" android:centerColor="#0D5B3E" android:endColor="#063524" />
-                      <corners android:radius="165dp" />
-                      <stroke android:width="2dp" android:color="#D4A843" />
-                  </shape>
-              </item>
-              <item android:top="28dp" android:left="32dp" android:right="32dp" android:bottom="32dp">
-                  <shape android:shape="rectangle">
-                      <solid android:color="@android:color/transparent" />
-                      <corners android:radius="150dp" />
-                      <stroke android:width="1dp" android:color="#334ADE9D" />
-                  </shape>
-              </item>
-          </layer-list>""",
+          <bitmap xmlns:android="http://schemas.android.com/apk/res/android" android:src="@drawable/table_v4" android:gravity="center" />""",
 
               'casino_wallet_pill.xml': """<?xml version="1.0" encoding="utf-8"?>
           <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
@@ -375,88 +952,240 @@ jobs:
           for name, xml_txt in drawables.items():
               write_file(os.path.join(drawable_dir, name), xml_txt)
 
-          # ------------------------------------------------------------------
-          # 2. Ultra-Crisp @xxhdpi PNG Art & Buttons via SVG + rsvg-convert
-          # ------------------------------------------------------------------
-          # Game Card Emblems (260x170)
-          emblems = {
-              'casino_emblem_teenpatti.png': '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 170">
-                <g transform="translate(130,90)">
-                  <g transform="rotate(-18) translate(-46,-58)">
-                    <rect width="74" height="104" rx="10" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="2"/>
-                    <text x="10" y="24" font-family="DejaVu Sans" font-size="18" font-weight="bold" fill="#0F172A">K</text>
-                    <text x="37" y="64" text-anchor="middle" font-family="DejaVu Sans" font-size="30" fill="#0F172A">♣</text>
-                  </g>
-                  <g transform="rotate(16) translate(-28,-58)">
-                    <rect width="74" height="104" rx="10" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="2"/>
-                    <text x="10" y="24" font-family="DejaVu Sans" font-size="18" font-weight="bold" fill="#DC2626">Q</text>
-                    <text x="37" y="64" text-anchor="middle" font-family="DejaVu Sans" font-size="30" fill="#DC2626">♦</text>
-                  </g>
-                  <g transform="translate(-37,-64)">
-                    <rect width="76" height="108" rx="11" fill="#FFFFFF" stroke="#D4A843" stroke-width="3"/>
-                    <text x="10" y="25" font-family="DejaVu Sans" font-size="20" font-weight="bold" fill="#0F172A">A</text>
-                    <text x="38" y="68" text-anchor="middle" font-family="DejaVu Sans" font-size="38" fill="#0F172A">♠</text>
-                  </g>
-                </g>
-              </svg>''',
+          # Smooth Card Entrance & Shimmer Animations
+          write_file(os.path.join(anim_dir, 'bounce.xml'), """<?xml version="1.0" encoding="utf-8"?>
+          <set xmlns:android="http://schemas.android.com/apk/res/android"
+              android:fillAfter="true">
+              <scale
+                  android:duration="420"
+                  android:fromXScale="0.92"
+                  android:fromYScale="0.92"
+                  android:interpolator="@android:anim/overshoot_interpolator"
+                  android:pivotX="50%"
+                  android:pivotY="50%"
+                  android:toXScale="1.0"
+                  android:toYScale="1.0" />
+              <alpha
+                  android:duration="260"
+                  android:fromAlpha="0.65"
+                  android:toAlpha="1.0" />
+          </set>""")
 
-              'casino_emblem_private.png': '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 170">
+          write_file(os.path.join(anim_dir, 'blink.xml'), """<?xml version="1.0" encoding="utf-8"?>
+          <set xmlns:android="http://schemas.android.com/apk/res/android">
+              <alpha
+                  android:duration="900"
+                  android:fromAlpha="0.86"
+                  android:interpolator="@android:anim/accelerate_decelerate_interpolator"
+                  android:repeatCount="infinite"
+                  android:repeatMode="reverse"
+                  android:toAlpha="1.0" />
+          </set>""")
+
+          # ------------------------------------------------------------------
+          # 2. Full-Bleed Illustrated Casino Card Posters (440x620 @xxhdpi) & Action Buttons
+          # ------------------------------------------------------------------
+          posters = {
+              'casino_poster_teenpatti.png': '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 620">
                 <defs>
-                  <linearGradient id="gCrown" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stop-color="#FDE68A"/>
-                    <stop offset="100%" stop-color="#D97706"/>
+                  <radialGradient id="bg1" cx="50%" cy="42%" r="68%">
+                    <stop offset="0%" stop-color="#10B981"/><stop offset="52%" stop-color="#065F46"/><stop offset="100%" stop-color="#022017"/>
+                  </radialGradient>
+                  <linearGradient id="gold1" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#FFFBEB"/><stop offset="45%" stop-color="#FCD34D"/><stop offset="100%" stop-color="#B45309"/>
+                  </linearGradient>
+                  <linearGradient id="cta1" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stop-color="#059669"/><stop offset="100%" stop-color="#10B981"/>
                   </linearGradient>
                 </defs>
-                <circle cx="130" cy="86" r="56" fill="#0F294A" stroke="#D4A843" stroke-width="3"/>
-                <circle cx="130" cy="86" r="46" fill="none" stroke="#60A5FA" stroke-opacity="0.35" stroke-width="2" stroke-dasharray="6 5"/>
-                <path d="M90,104 L98,66 L116,84 L130,58 L144,84 L162,66 L170,104 Z" fill="url(#gCrown)" stroke="#FFFBEB" stroke-width="2"/>
-                <rect x="90" y="106" width="80" height="11" rx="5" fill="#F5D06F"/>
+                <rect x="4" y="4" width="432" height="612" rx="28" fill="url(#bg1)" stroke="url(#gold1)" stroke-width="5"/>
+                <rect x="14" y="14" width="412" height="592" rx="22" fill="none" stroke="#FDE68A" stroke-opacity="0.35" stroke-width="1.5"/>
+                <g opacity="0.14" fill="#FDE68A">
+                  <polygon points="220,245 140,14 300,14"/><polygon points="220,245 426,95 426,230"/>
+                  <polygon points="220,245 14,95 14,230"/><polygon points="220,245 60,460 180,460"/><polygon points="220,245 260,460 380,460"/>
+                </g>
+                <rect x="135" y="34" width="170" height="36" rx="18" fill="#031C14" fill-opacity="0.82" stroke="#F5D06F" stroke-width="2"/>
+                <text x="220" y="58" text-anchor="middle" font-family="DejaVu Sans" font-size="17" font-weight="bold" letter-spacing="3" fill="#34D399">CLASSIC</text>
+                <g transform="translate(220,245)">
+                  <g transform="rotate(-19) translate(-110,-120)">
+                    <rect width="128" height="184" rx="16" fill="#000000" fill-opacity="0.35" transform="translate(6,10)"/>
+                    <rect width="128" height="184" rx="16" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="3"/>
+                    <text x="16" y="42" font-family="DejaVu Sans" font-size="30" font-weight="bold" fill="#0F172A">K</text>
+                    <text x="64" y="114" text-anchor="middle" font-family="DejaVu Sans" font-size="58" fill="#0F172A">♣</text>
+                  </g>
+                  <g transform="rotate(19) translate(-18,-120)">
+                    <rect width="128" height="184" rx="16" fill="#000000" fill-opacity="0.35" transform="translate(-4,10)"/>
+                    <rect width="128" height="184" rx="16" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="3"/>
+                    <text x="16" y="42" font-family="DejaVu Sans" font-size="30" font-weight="bold" fill="#DC2626">Q</text>
+                    <text x="64" y="114" text-anchor="middle" font-family="DejaVu Sans" font-size="58" fill="#DC2626">♦</text>
+                  </g>
+                  <g transform="translate(-68,-132)">
+                    <rect width="136" height="196" rx="18" fill="#000000" fill-opacity="0.45" transform="translate(0,12)"/>
+                    <rect width="136" height="196" rx="18" fill="#FFFFFF" stroke="#F5D06F" stroke-width="4.5"/>
+                    <text x="18" y="46" font-family="DejaVu Sans" font-size="34" font-weight="bold" fill="#0F172A">A</text>
+                    <text x="68" y="122" text-anchor="middle" font-family="DejaVu Sans" font-size="72" fill="#0F172A">♠</text>
+                  </g>
+                  <circle cx="-112" cy="78" r="24" fill="#D97706" stroke="#FEF3C7" stroke-width="3" stroke-dasharray="7 5"/>
+                  <circle cx="-112" cy="78" r="14" fill="#78350F"/><text x="-112" y="84" text-anchor="middle" font-family="DejaVu Sans" font-size="16" font-weight="bold" fill="#FDE68A">₹</text>
+                  <circle cx="114" cy="76" r="22" fill="#059669" stroke="#FFFFFF" stroke-width="3" stroke-dasharray="7 5"/>
+                  <circle cx="114" cy="76" r="12" fill="#064E3B"/><text x="114" y="82" text-anchor="middle" font-family="DejaVu Sans" font-size="15" font-weight="bold" fill="#FFFFFF">★</text>
+                </g>
+                <text x="220" y="446" text-anchor="middle" font-family="DejaVu Sans" font-size="46" font-weight="bold" fill="url(#gold1)">3 PATTI</text>
+                <text x="220" y="478" text-anchor="middle" font-family="DejaVu Sans" font-size="17" letter-spacing="2" fill="#A7F3D0">LIVE 5-PLAYER TABLE</text>
+                <rect x="44" y="512" width="352" height="66" rx="33" fill="url(#cta1)" stroke="#6EE7B7" stroke-width="2.5"/>
+                <text x="220" y="555" text-anchor="middle" font-family="DejaVu Sans" font-size="25" font-weight="bold" letter-spacing="2" fill="#FFFFFF">PLAY NOW  ›</text>
               </svg>''',
 
-              'casino_emblem_custom.png': '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 170">
-                <circle cx="102" cy="92" r="42" fill="#991B1B" stroke="#F8FAFC" stroke-width="4" stroke-dasharray="10 7"/>
-                <circle cx="102" cy="92" r="28" fill="#450A0A" stroke="#F5D06F" stroke-width="2"/>
-                <text x="102" y="101" text-anchor="middle" font-family="DejaVu Sans" font-size="24" font-weight="bold" fill="#F5D06F">₹</text>
-                <circle cx="158" cy="78" r="44" fill="#D97706" stroke="#FFFFFF" stroke-width="4" stroke-dasharray="10 7"/>
-                <circle cx="158" cy="78" r="30" fill="#1E1B4B" stroke="#FDE68A" stroke-width="2"/>
-                <text x="158" y="87" text-anchor="middle" font-family="DejaVu Sans" font-size="24" font-weight="bold" fill="#FDE68A">★</text>
+              'casino_poster_private.png': '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 620">
+                <defs>
+                  <radialGradient id="bg2" cx="50%" cy="42%" r="68%">
+                    <stop offset="0%" stop-color="#2563EB"/><stop offset="52%" stop-color="#1E3A8A"/><stop offset="100%" stop-color="#07112B"/>
+                  </radialGradient>
+                  <linearGradient id="gold2" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#FFFBEB"/><stop offset="50%" stop-color="#FBBF24"/><stop offset="100%" stop-color="#B45309"/>
+                  </linearGradient>
+                  <linearGradient id="cta2" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stop-color="#059669"/><stop offset="100%" stop-color="#10B981"/>
+                  </linearGradient>
+                </defs>
+                <rect x="4" y="4" width="432" height="612" rx="28" fill="url(#bg2)" stroke="url(#gold2)" stroke-width="5"/>
+                <rect x="14" y="14" width="412" height="592" rx="22" fill="none" stroke="#93C5FD" stroke-opacity="0.35" stroke-width="1.5"/>
+                <g opacity="0.14" fill="#93C5FD">
+                  <polygon points="220,240 140,14 300,14"/><polygon points="220,240 426,95 426,230"/>
+                  <polygon points="220,240 14,95 14,230"/><polygon points="220,240 60,460 180,460"/><polygon points="220,240 260,460 380,460"/>
+                </g>
+                <rect x="135" y="34" width="170" height="36" rx="18" fill="#071433" fill-opacity="0.82" stroke="#F5D06F" stroke-width="2"/>
+                <text x="220" y="58" text-anchor="middle" font-family="DejaVu Sans" font-size="17" font-weight="bold" letter-spacing="3" fill="#93C5FD">FRIENDS</text>
+                <circle cx="220" cy="242" r="108" fill="#0B1F4D" stroke="url(#gold2)" stroke-width="5"/>
+                <circle cx="220" cy="242" r="90" fill="none" stroke="#60A5FA" stroke-opacity="0.45" stroke-width="2.5" stroke-dasharray="10 7"/>
+                <path d="M138,274 L156,196 L194,232 L220,174 L246,232 L284,196 L302,274 Z" fill="url(#gold2)" stroke="#FFFBEB" stroke-width="3.5"/>
+                <rect x="138" y="278" width="164" height="22" rx="10" fill="#FDE68A" stroke="#B45309" stroke-width="2"/>
+                <circle cx="156" cy="192" r="8" fill="#EF4444"/><circle cx="220" cy="170" r="10" fill="#10B981"/><circle cx="284" cy="192" r="8" fill="#EF4444"/>
+                <text x="220" y="446" text-anchor="middle" font-family="DejaVu Sans" font-size="44" font-weight="bold" fill="url(#gold2)">PRIVATE</text>
+                <text x="220" y="478" text-anchor="middle" font-family="DejaVu Sans" font-size="17" letter-spacing="2" fill="#BFDBFE">INVITE &amp; PLAY ROOM</text>
+                <rect x="44" y="512" width="352" height="66" rx="33" fill="url(#cta2)" stroke="#6EE7B7" stroke-width="2.5"/>
+                <text x="220" y="555" text-anchor="middle" font-family="DejaVu Sans" font-size="25" font-weight="bold" letter-spacing="2" fill="#FFFFFF">PLAY NOW  ›</text>
               </svg>''',
 
-              'casino_emblem_rummy.png': '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 170">
-                <g transform="translate(130,90)">
-                  <g transform="rotate(-18) translate(-52,-54)">
-                    <rect width="68" height="96" rx="9" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="2"/>
-                    <text x="10" y="23" font-family="DejaVu Sans" font-size="16" font-weight="bold" fill="#DC2626">J</text>
-                    <text x="34" y="58" text-anchor="middle" font-family="DejaVu Sans" font-size="26" fill="#DC2626">♥</text>
-                  </g>
-                  <g transform="rotate(0) translate(-34,-58)">
-                    <rect width="68" height="96" rx="9" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="2"/>
-                    <text x="10" y="23" font-family="DejaVu Sans" font-size="16" font-weight="bold" fill="#DC2626">Q</text>
-                    <text x="34" y="58" text-anchor="middle" font-family="DejaVu Sans" font-size="26" fill="#DC2626">♥</text>
-                  </g>
-                  <g transform="rotate(18) translate(-16,-54)">
-                    <rect width="68" height="96" rx="9" fill="#FFFFFF" stroke="#D4A843" stroke-width="2.5"/>
-                    <text x="10" y="23" font-family="DejaVu Sans" font-size="16" font-weight="bold" fill="#DC2626">K</text>
-                    <text x="34" y="58" text-anchor="middle" font-family="DejaVu Sans" font-size="26" fill="#DC2626">♥</text>
-                  </g>
+              'casino_poster_custom.png': '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 620">
+                <defs>
+                  <radialGradient id="bg3" cx="50%" cy="42%" r="68%">
+                    <stop offset="0%" stop-color="#DC2626"/><stop offset="52%" stop-color="#7F1D1D"/><stop offset="100%" stop-color="#22060A"/>
+                  </radialGradient>
+                  <linearGradient id="gold3" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#FFFBEB"/><stop offset="50%" stop-color="#FBBF24"/><stop offset="100%" stop-color="#B45309"/>
+                  </linearGradient>
+                  <linearGradient id="cta3" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stop-color="#059669"/><stop offset="100%" stop-color="#10B981"/>
+                  </linearGradient>
+                </defs>
+                <rect x="4" y="4" width="432" height="612" rx="28" fill="url(#bg3)" stroke="url(#gold3)" stroke-width="5"/>
+                <rect x="14" y="14" width="412" height="592" rx="22" fill="none" stroke="#FCA5A5" stroke-opacity="0.35" stroke-width="1.5"/>
+                <g opacity="0.14" fill="#FDE68A">
+                  <polygon points="220,242 140,14 300,14"/><polygon points="220,242 426,95 426,230"/>
+                  <polygon points="220,242 14,95 14,230"/><polygon points="220,242 60,460 180,460"/><polygon points="220,242 260,460 380,460"/>
                 </g>
+                <rect x="120" y="34" width="200" height="36" rx="18" fill="#2A080C" fill-opacity="0.82" stroke="#F5D06F" stroke-width="2"/>
+                <text x="220" y="58" text-anchor="middle" font-family="DejaVu Sans" font-size="16" font-weight="bold" letter-spacing="2.5" fill="#FDE047">CUSTOM</text>
+                <g transform="translate(154,265)">
+                  <circle cx="0" cy="0" r="78" fill="#991B1B" stroke="#FFFFFF" stroke-width="7" stroke-dasharray="18 12"/>
+                  <circle cx="0" cy="0" r="56" fill="#450A0A" stroke="#F5D06F" stroke-width="3.5"/>
+                  <text x="0" y="16" text-anchor="middle" font-family="DejaVu Sans" font-size="48" font-weight="bold" fill="#F5D06F">₹</text>
+                </g>
+                <g transform="translate(278,220)">
+                  <circle cx="0" cy="0" r="84" fill="#D97706" stroke="#FFFBEB" stroke-width="8" stroke-dasharray="18 12"/>
+                  <circle cx="0" cy="0" r="60" fill="#1E1B4B" stroke="#FDE68A" stroke-width="4"/>
+                  <text x="0" y="18" text-anchor="middle" font-family="DejaVu Sans" font-size="52" font-weight="bold" fill="#FDE68A">★</text>
+                </g>
+                <text x="220" y="446" text-anchor="middle" font-family="DejaVu Sans" font-size="37" font-weight="bold" fill="url(#gold3)">CUSTOM BOOT</text>
+                <text x="220" y="478" text-anchor="middle" font-family="DejaVu Sans" font-size="17" letter-spacing="2" fill="#FECACA">CHOOSE YOUR STAKES</text>
+                <rect x="44" y="512" width="352" height="66" rx="33" fill="url(#cta3)" stroke="#6EE7B7" stroke-width="2.5"/>
+                <text x="220" y="555" text-anchor="middle" font-family="DejaVu Sans" font-size="25" font-weight="bold" letter-spacing="2" fill="#FFFFFF">PLAY NOW  ›</text>
               </svg>''',
 
-              'casino_emblem_ab.png': '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 170">
-                <g transform="translate(46,32)">
-                  <rect width="74" height="104" rx="11" fill="#0F172A" stroke="#34D399" stroke-width="3"/>
-                  <text x="37" y="64" text-anchor="middle" font-family="DejaVu Sans" font-size="38" font-weight="bold" fill="#34D399">A</text>
+              'casino_poster_rummy.png': '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 620">
+                <defs>
+                  <radialGradient id="bg4" cx="50%" cy="42%" r="68%">
+                    <stop offset="0%" stop-color="#7C3AED"/><stop offset="52%" stop-color="#4C1D95"/><stop offset="100%" stop-color="#170833"/>
+                  </radialGradient>
+                  <linearGradient id="gold4" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#FFFBEB"/><stop offset="50%" stop-color="#FBBF24"/><stop offset="100%" stop-color="#B45309"/>
+                  </linearGradient>
+                  <linearGradient id="cta4" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stop-color="#059669"/><stop offset="100%" stop-color="#10B981"/>
+                  </linearGradient>
+                </defs>
+                <rect x="4" y="4" width="432" height="612" rx="28" fill="url(#bg4)" stroke="url(#gold4)" stroke-width="5"/>
+                <rect x="14" y="14" width="412" height="592" rx="22" fill="none" stroke="#DDD6FE" stroke-opacity="0.35" stroke-width="1.5"/>
+                <g opacity="0.14" fill="#DDD6FE">
+                  <polygon points="220,242 140,14 300,14"/><polygon points="220,242 426,95 426,230"/>
+                  <polygon points="220,242 14,95 14,230"/><polygon points="220,242 60,460 180,460"/><polygon points="220,242 260,460 380,460"/>
                 </g>
-                <g transform="translate(140,32)">
-                  <rect width="74" height="104" rx="11" fill="#0F172A" stroke="#F5D06F" stroke-width="3"/>
-                  <text x="37" y="64" text-anchor="middle" font-family="DejaVu Sans" font-size="38" font-weight="bold" fill="#F5D06F">B</text>
+                <rect x="125" y="34" width="190" height="36" rx="18" fill="#180836" fill-opacity="0.82" stroke="#F5D06F" stroke-width="2"/>
+                <text x="220" y="58" text-anchor="middle" font-family="DejaVu Sans" font-size="16" font-weight="bold" letter-spacing="2.5" fill="#E9D5FF">13 CARDS</text>
+                <g transform="translate(220,252)">
+                  <g transform="rotate(-24) translate(-115,-118)">
+                    <rect width="122" height="176" rx="15" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="3"/>
+                    <text x="14" y="40" font-family="DejaVu Sans" font-size="28" font-weight="bold" fill="#DC2626">J</text>
+                    <text x="61" y="110" text-anchor="middle" font-family="DejaVu Sans" font-size="54" fill="#DC2626">♥</text>
+                  </g>
+                  <g transform="rotate(0) translate(-61,-128)">
+                    <rect width="122" height="176" rx="15" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="3"/>
+                    <text x="14" y="40" font-family="DejaVu Sans" font-size="28" font-weight="bold" fill="#DC2626">Q</text>
+                    <text x="61" y="110" text-anchor="middle" font-family="DejaVu Sans" font-size="54" fill="#DC2626">♥</text>
+                  </g>
+                  <g transform="rotate(24) translate(-7,-118)">
+                    <rect width="122" height="176" rx="15" fill="#FFFFFF" stroke="#F5D06F" stroke-width="4"/>
+                    <text x="14" y="40" font-family="DejaVu Sans" font-size="28" font-weight="bold" fill="#DC2626">K</text>
+                    <text x="61" y="110" text-anchor="middle" font-family="DejaVu Sans" font-size="54" fill="#DC2626">♥</text>
+                  </g>
                 </g>
-                <circle cx="130" cy="84" r="18" fill="#10B981" stroke="#FFFFFF" stroke-width="2"/>
-                <text x="130" y="89" text-anchor="middle" font-family="DejaVu Sans" font-size="13" font-weight="bold" fill="#FFFFFF">VS</text>
+                <text x="220" y="446" text-anchor="middle" font-family="DejaVu Sans" font-size="46" font-weight="bold" fill="url(#gold4)">RUMMY</text>
+                <text x="220" y="478" text-anchor="middle" font-family="DejaVu Sans" font-size="17" letter-spacing="2" fill="#E9D5FF">POINTS &amp; POOL TABLE</text>
+                <rect x="44" y="512" width="352" height="66" rx="33" fill="url(#cta4)" stroke="#6EE7B7" stroke-width="2.5"/>
+                <text x="220" y="555" text-anchor="middle" font-family="DejaVu Sans" font-size="25" font-weight="bold" letter-spacing="2" fill="#FFFFFF">PLAY NOW  ›</text>
+              </svg>''',
+
+              'casino_poster_ab.png': '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 620">
+                <defs>
+                  <radialGradient id="bg5" cx="50%" cy="42%" r="68%">
+                    <stop offset="0%" stop-color="#0D9488"/><stop offset="52%" stop-color="#115E59"/><stop offset="100%" stop-color="#042226"/>
+                  </radialGradient>
+                  <linearGradient id="gold5" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#FFFBEB"/><stop offset="50%" stop-color="#FBBF24"/><stop offset="100%" stop-color="#B45309"/>
+                  </linearGradient>
+                  <linearGradient id="cta5" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stop-color="#059669"/><stop offset="100%" stop-color="#10B981"/>
+                  </linearGradient>
+                </defs>
+                <rect x="4" y="4" width="432" height="612" rx="28" fill="url(#bg5)" stroke="url(#gold5)" stroke-width="5"/>
+                <rect x="14" y="14" width="412" height="592" rx="22" fill="none" stroke="#99F6E4" stroke-opacity="0.35" stroke-width="1.5"/>
+                <g opacity="0.14" fill="#99F6E4">
+                  <polygon points="220,242 140,14 300,14"/><polygon points="220,242 426,95 426,230"/>
+                  <polygon points="220,242 14,95 14,230"/><polygon points="220,242 60,460 180,460"/><polygon points="220,242 260,460 380,460"/>
+                </g>
+                <rect x="135" y="34" width="170" height="36" rx="18" fill="#042426" fill-opacity="0.82" stroke="#F5D06F" stroke-width="2"/>
+                <text x="220" y="58" text-anchor="middle" font-family="DejaVu Sans" font-size="17" font-weight="bold" letter-spacing="3" fill="#5EEAD4">50 / 50</text>
+                <g transform="translate(58,154)">
+                  <rect width="136" height="190" rx="18" fill="#071521" stroke="#34D399" stroke-width="5"/>
+                  <text x="68" y="114" text-anchor="middle" font-family="DejaVu Sans" font-size="76" font-weight="bold" fill="#34D399">A</text>
+                  <text x="68" y="160" text-anchor="middle" font-family="DejaVu Sans" font-size="18" font-weight="bold" fill="#A7F3D0">ANDAR</text>
+                </g>
+                <g transform="translate(246,154)">
+                  <rect width="136" height="190" rx="18" fill="#071521" stroke="#FBBF24" stroke-width="5"/>
+                  <text x="68" y="114" text-anchor="middle" font-family="DejaVu Sans" font-size="76" font-weight="bold" fill="#FBBF24">B</text>
+                  <text x="68" y="160" text-anchor="middle" font-family="DejaVu Sans" font-size="18" font-weight="bold" fill="#FDE68A">BAHAR</text>
+                </g>
+                <circle cx="220" cy="249" r="32" fill="#10B981" stroke="#FFFFFF" stroke-width="4"/>
+                <text x="220" y="258" text-anchor="middle" font-family="DejaVu Sans" font-size="24" font-weight="bold" fill="#FFFFFF">VS</text>
+                <text x="220" y="446" text-anchor="middle" font-family="DejaVu Sans" font-size="36" font-weight="bold" fill="url(#gold5)">ANDAR BAHAR</text>
+                <text x="220" y="478" text-anchor="middle" font-family="DejaVu Sans" font-size="17" letter-spacing="2" fill="#99F6E4">FAST CASINO DUEL</text>
+                <rect x="44" y="512" width="352" height="66" rx="33" fill="url(#cta5)" stroke="#6EE7B7" stroke-width="2.5"/>
+                <text x="220" y="555" text-anchor="middle" font-family="DejaVu Sans" font-size="25" font-weight="bold" letter-spacing="2" fill="#FFFFFF">PLAY NOW  ›</text>
               </svg>'''
           }
-          for fname, svg in emblems.items():
-              render_svg(svg, os.path.join(xxhdpi_dir, fname), 260, 170)
+          for fname, svg in posters.items():
+              render_svg(svg, os.path.join(xxhdpi_dir, fname), 440, 620)
 
           # Action Dock Buttons
           render_svg('''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 312 108">
@@ -529,7 +1258,7 @@ jobs:
               return set(re.findall(r'android:id="@\+id/([^"]+)"', no_comments))
 
           hp_path = os.path.join(layout_dir, 'activity_homepage.xml')
-          orig_hp_ids = ids_of(open(hp_path, encoding='utf-8').read())
+          orig_hp_ids = {i for i in ids_of(open(hp_path, encoding='utf-8').read()) if not i.startswith('cta_')}
 
           homepage_xml = """<?xml version="1.0" encoding="utf-8"?>
           <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -958,351 +1687,81 @@ jobs:
                       android:layout_height="match_parent"
                       android:layout_below="@id/casino_lobby_title"
                       android:layout_marginTop="8dp"
-                      android:layout_marginBottom="14dp"
+                      android:layout_marginBottom="12dp"
                       android:gravity="center"
                       android:orientation="horizontal"
-                      android:paddingLeft="14dp"
-                      android:paddingRight="14dp">
+                      android:paddingLeft="12dp"
+                      android:paddingRight="12dp">
 
                       <!-- 1: 3 PATTI -->
-                      <RelativeLayout
+                      <ImageView
+                          android:id="@+id/imgpublicGame"
                           android:layout_width="0dp"
                           android:layout_height="match_parent"
                           android:layout_marginLeft="5dp"
                           android:layout_marginRight="5dp"
                           android:layout_weight="1"
-                          android:background="@drawable/casino_card_teenpatti"
+                          android:clickable="true"
+                          android:contentDescription="3 PATTI"
                           android:elevation="6dp"
-                          android:padding="10dp">
-
-                          <ImageView
-                              android:id="@+id/imgpublicGame"
-                              android:layout_width="match_parent"
-                              android:layout_height="match_parent"
-                              android:clickable="true"
-                              android:contentDescription="3 PATTI"
-                              android:paddingLeft="8dp"
-                              android:paddingRight="8dp"
-                              android:paddingTop="24dp"
-                              android:paddingBottom="62dp"
-                              android:scaleType="fitCenter"
-                              android:src="@drawable/casino_emblem_teenpatti" />
-
-                          <TextView
-                              android:layout_width="wrap_content"
-                              android:layout_height="20dp"
-                              android:layout_alignParentTop="true"
-                              android:layout_centerHorizontal="true"
-                              android:background="@drawable/casino_badge_tag"
-                              android:clickable="false"
-                              android:focusable="false"
-                              android:gravity="center"
-                              android:paddingLeft="10dp"
-                              android:paddingRight="10dp"
-                              android:text="CLASSIC"
-                              android:textColor="#34D399"
-                              android:textSize="9sp"
-                              android:textStyle="bold" />
-
-                          <TextView
-                              android:layout_width="match_parent"
-                              android:layout_height="wrap_content"
-                              android:layout_above="@+id/cta_3patti"
-                              android:layout_marginBottom="8dp"
-                              android:clickable="false"
-                              android:focusable="false"
-                              android:gravity="center"
-                              android:text="3 PATTI"
-                              android:textColor="#FFFFFF"
-                              android:textSize="16sp"
-                              android:textStyle="bold" />
-
-                          <TextView
-                              android:id="@+id/cta_3patti"
-                              android:layout_width="match_parent"
-                              android:layout_height="30dp"
-                              android:layout_alignParentBottom="true"
-                              android:background="@drawable/casino_play_pill"
-                              android:clickable="false"
-                              android:focusable="false"
-                              android:gravity="center"
-                              android:text="PLAY  ›"
-                              android:textColor="#FFFFFF"
-                              android:textSize="11sp"
-                              android:textStyle="bold" />
-                      </RelativeLayout>
+                          android:scaleType="fitXY"
+                          android:src="@drawable/casino_poster_teenpatti" />
 
                       <!-- 2: PRIVATE TABLE -->
-                      <RelativeLayout
+                      <ImageView
+                          android:id="@+id/imgPrivategame"
                           android:layout_width="0dp"
                           android:layout_height="match_parent"
                           android:layout_marginLeft="5dp"
                           android:layout_marginRight="5dp"
                           android:layout_weight="1"
-                          android:background="@drawable/casino_card_private"
+                          android:clickable="true"
+                          android:contentDescription="PRIVATE TABLE"
                           android:elevation="6dp"
-                          android:padding="10dp">
-
-                          <ImageView
-                              android:id="@+id/imgPrivategame"
-                              android:layout_width="match_parent"
-                              android:layout_height="match_parent"
-                              android:clickable="true"
-                              android:contentDescription="PRIVATE TABLE"
-                              android:paddingLeft="8dp"
-                              android:paddingRight="8dp"
-                              android:paddingTop="24dp"
-                              android:paddingBottom="62dp"
-                              android:scaleType="fitCenter"
-                              android:src="@drawable/casino_emblem_private" />
-
-                          <TextView
-                              android:layout_width="wrap_content"
-                              android:layout_height="20dp"
-                              android:layout_alignParentTop="true"
-                              android:layout_centerHorizontal="true"
-                              android:background="@drawable/casino_badge_tag"
-                              android:clickable="false"
-                              android:focusable="false"
-                              android:gravity="center"
-                              android:paddingLeft="10dp"
-                              android:paddingRight="10dp"
-                              android:text="FRIENDS"
-                              android:textColor="#60A5FA"
-                              android:textSize="9sp"
-                              android:textStyle="bold" />
-
-                          <TextView
-                              android:layout_width="match_parent"
-                              android:layout_height="wrap_content"
-                              android:layout_above="@+id/cta_private"
-                              android:layout_marginBottom="8dp"
-                              android:clickable="false"
-                              android:focusable="false"
-                              android:gravity="center"
-                              android:text="PRIVATE"
-                              android:textColor="#FFFFFF"
-                              android:textSize="16sp"
-                              android:textStyle="bold" />
-
-                          <TextView
-                              android:id="@+id/cta_private"
-                              android:layout_width="match_parent"
-                              android:layout_height="30dp"
-                              android:layout_alignParentBottom="true"
-                              android:background="@drawable/casino_play_pill"
-                              android:clickable="false"
-                              android:focusable="false"
-                              android:gravity="center"
-                              android:text="PLAY  ›"
-                              android:textColor="#FFFFFF"
-                              android:textSize="11sp"
-                              android:textStyle="bold" />
-                      </RelativeLayout>
+                          android:scaleType="fitXY"
+                          android:src="@drawable/casino_poster_private" />
 
                       <!-- 3: CUSTOM BOOT -->
-                      <RelativeLayout
+                      <ImageView
+                          android:id="@+id/ImgCustomePage"
                           android:layout_width="0dp"
                           android:layout_height="match_parent"
                           android:layout_marginLeft="5dp"
                           android:layout_marginRight="5dp"
                           android:layout_weight="1"
-                          android:background="@drawable/casino_card_custom"
+                          android:clickable="true"
+                          android:contentDescription="CUSTOM BOOT"
                           android:elevation="6dp"
-                          android:padding="10dp">
-
-                          <ImageView
-                              android:id="@+id/ImgCustomePage"
-                              android:layout_width="match_parent"
-                              android:layout_height="match_parent"
-                              android:clickable="true"
-                              android:contentDescription="CUSTOM BOOT"
-                              android:paddingLeft="8dp"
-                              android:paddingRight="8dp"
-                              android:paddingTop="24dp"
-                              android:paddingBottom="62dp"
-                              android:scaleType="fitCenter"
-                              android:src="@drawable/casino_emblem_custom" />
-
-                          <TextView
-                              android:layout_width="wrap_content"
-                              android:layout_height="20dp"
-                              android:layout_alignParentTop="true"
-                              android:layout_centerHorizontal="true"
-                              android:background="@drawable/casino_badge_tag"
-                              android:clickable="false"
-                              android:focusable="false"
-                              android:gravity="center"
-                              android:paddingLeft="10dp"
-                              android:paddingRight="10dp"
-                              android:text="CUSTOM"
-                              android:textColor="#FBBF24"
-                              android:textSize="9sp"
-                              android:textStyle="bold" />
-
-                          <TextView
-                              android:layout_width="match_parent"
-                              android:layout_height="wrap_content"
-                              android:layout_above="@+id/cta_custom"
-                              android:layout_marginBottom="8dp"
-                              android:clickable="false"
-                              android:focusable="false"
-                              android:gravity="center"
-                              android:text="CUSTOM BOOT"
-                              android:textColor="#FFFFFF"
-                              android:textSize="15sp"
-                              android:textStyle="bold" />
-
-                          <TextView
-                              android:id="@+id/cta_custom"
-                              android:layout_width="match_parent"
-                              android:layout_height="30dp"
-                              android:layout_alignParentBottom="true"
-                              android:background="@drawable/casino_play_pill"
-                              android:clickable="false"
-                              android:focusable="false"
-                              android:gravity="center"
-                              android:text="PLAY  ›"
-                              android:textColor="#FFFFFF"
-                              android:textSize="11sp"
-                              android:textStyle="bold" />
-                      </RelativeLayout>
+                          android:scaleType="fitXY"
+                          android:src="@drawable/casino_poster_custom" />
 
                       <!-- 4: RUMMY -->
-                      <RelativeLayout
+                      <ImageView
+                          android:id="@+id/ImgVariationGane"
                           android:layout_width="0dp"
                           android:layout_height="match_parent"
                           android:layout_marginLeft="5dp"
                           android:layout_marginRight="5dp"
                           android:layout_weight="1"
-                          android:background="@drawable/casino_card_rummy"
+                          android:clickable="true"
+                          android:contentDescription="RUMMY"
                           android:elevation="6dp"
-                          android:padding="10dp">
-
-                          <ImageView
-                              android:id="@+id/ImgVariationGane"
-                              android:layout_width="match_parent"
-                              android:layout_height="match_parent"
-                              android:clickable="true"
-                              android:contentDescription="RUMMY"
-                              android:paddingLeft="8dp"
-                              android:paddingRight="8dp"
-                              android:paddingTop="24dp"
-                              android:paddingBottom="62dp"
-                              android:scaleType="fitCenter"
-                              android:src="@drawable/casino_emblem_rummy" />
-
-                          <TextView
-                              android:layout_width="wrap_content"
-                              android:layout_height="20dp"
-                              android:layout_alignParentTop="true"
-                              android:layout_centerHorizontal="true"
-                              android:background="@drawable/casino_badge_tag"
-                              android:clickable="false"
-                              android:focusable="false"
-                              android:gravity="center"
-                              android:paddingLeft="10dp"
-                              android:paddingRight="10dp"
-                              android:text="13 CARDS"
-                              android:textColor="#C084FC"
-                              android:textSize="9sp"
-                              android:textStyle="bold" />
-
-                          <TextView
-                              android:layout_width="match_parent"
-                              android:layout_height="wrap_content"
-                              android:layout_above="@+id/cta_rummy"
-                              android:layout_marginBottom="8dp"
-                              android:clickable="false"
-                              android:focusable="false"
-                              android:gravity="center"
-                              android:text="RUMMY"
-                              android:textColor="#FFFFFF"
-                              android:textSize="16sp"
-                              android:textStyle="bold" />
-
-                          <TextView
-                              android:id="@+id/cta_rummy"
-                              android:layout_width="match_parent"
-                              android:layout_height="30dp"
-                              android:layout_alignParentBottom="true"
-                              android:background="@drawable/casino_play_pill"
-                              android:clickable="false"
-                              android:focusable="false"
-                              android:gravity="center"
-                              android:text="PLAY  ›"
-                              android:textColor="#FFFFFF"
-                              android:textSize="11sp"
-                              android:textStyle="bold" />
-                      </RelativeLayout>
+                          android:scaleType="fitXY"
+                          android:src="@drawable/casino_poster_rummy" />
 
                       <!-- 5: ANDAR BAHAR -->
-                      <RelativeLayout
+                      <ImageView
+                          android:id="@+id/iv_andher"
                           android:layout_width="0dp"
                           android:layout_height="match_parent"
                           android:layout_marginLeft="5dp"
                           android:layout_marginRight="5dp"
                           android:layout_weight="1"
-                          android:background="@drawable/casino_card_andarbahar"
+                          android:clickable="true"
+                          android:contentDescription="ANDAR BAHAR"
                           android:elevation="6dp"
-                          android:padding="10dp">
-
-                          <ImageView
-                              android:id="@+id/iv_andher"
-                              android:layout_width="match_parent"
-                              android:layout_height="match_parent"
-                              android:clickable="true"
-                              android:contentDescription="ANDAR BAHAR"
-                              android:paddingLeft="8dp"
-                              android:paddingRight="8dp"
-                              android:paddingTop="24dp"
-                              android:paddingBottom="62dp"
-                              android:scaleType="fitCenter"
-                              android:src="@drawable/casino_emblem_ab" />
-
-                          <TextView
-                              android:layout_width="wrap_content"
-                              android:layout_height="20dp"
-                              android:layout_alignParentTop="true"
-                              android:layout_centerHorizontal="true"
-                              android:background="@drawable/casino_badge_tag"
-                              android:clickable="false"
-                              android:focusable="false"
-                              android:gravity="center"
-                              android:paddingLeft="10dp"
-                              android:paddingRight="10dp"
-                              android:text="50 / 50"
-                              android:textColor="#2DD4BF"
-                              android:textSize="9sp"
-                              android:textStyle="bold" />
-
-                          <TextView
-                              android:layout_width="match_parent"
-                              android:layout_height="wrap_content"
-                              android:layout_above="@+id/cta_ab"
-                              android:layout_marginBottom="8dp"
-                              android:clickable="false"
-                              android:focusable="false"
-                              android:gravity="center"
-                              android:text="ANDAR BAHAR"
-                              android:textColor="#FFFFFF"
-                              android:textSize="14sp"
-                              android:textStyle="bold" />
-
-                          <TextView
-                              android:id="@+id/cta_ab"
-                              android:layout_width="match_parent"
-                              android:layout_height="30dp"
-                              android:layout_alignParentBottom="true"
-                              android:background="@drawable/casino_play_pill"
-                              android:clickable="false"
-                              android:focusable="false"
-                              android:gravity="center"
-                              android:text="PLAY  ›"
-                              android:textColor="#FFFFFF"
-                              android:textSize="11sp"
-                              android:textStyle="bold" />
-                      </RelativeLayout>
+                          android:scaleType="fitXY"
+                          android:src="@drawable/casino_poster_ab" />
                   </LinearLayout>
 
                   <RelativeLayout
@@ -1804,9 +2263,9 @@ jobs:
           pt_txt = open(pt_path, 'r', encoding='utf-8').read()
           orig_pt_ids = ids_of(pt_txt)
 
-          # Global drawable upgrades across the 5 seats & table
-          pt_txt = pt_txt.replace('@drawable/bgnew1', '@drawable/casino_table_backdrop')
-          pt_txt = pt_txt.replace('@drawable/table_v4', '@drawable/casino_emerald_table')
+          # Restore rich 3D casino hall (bgnew1) & 3D table (table_v4) while keeping sleek HUD upgrades!
+          pt_txt = pt_txt.replace('@drawable/casino_table_backdrop', '@drawable/bgnew1')
+          pt_txt = pt_txt.replace('@drawable/casino_emerald_table', '@drawable/table_v4')
           pt_txt = pt_txt.replace('@drawable/user_bg_circle', '@drawable/casino_seat_ring')
           pt_txt = pt_txt.replace('@drawable/white_lable_small', '@drawable/casino_player_pill')
           pt_txt = pt_txt.replace('@drawable/white_lable_big', '@drawable/casino_player_pill')
@@ -1885,15 +2344,19 @@ jobs:
               flags=re.S
           )
 
-          # Player 1 wallet white text + clean pill spacing
-          pt_txt = pt_txt.replace(
-              '<TextView\n                        android:id="@+id/txtPlay1wallet"\n                        style="@style/BlackTextview" />',
-              '<TextView\n                        android:id="@+id/txtPlay1wallet"\n                        style="@style/ShadowWhiteTextview"\n                        android:layout_marginLeft="18dp"\n                        android:layout_marginRight="8dp"\n                        android:textSize="11sp"\n                        android:text="0" />'
-          )
+          # Player 1 wallet white text + clean pill spacing (works both on original & already-updated XML)
           pt_txt = re.sub(
-              r'(<TextView\s+android:id="@\+id/txtPlay1wallet"\s+)style="@style/BlackTextview"(\s*/>)',
-              r'\1style="@style/ShadowWhiteTextview" android:layout_marginLeft="18dp" android:layout_marginRight="8dp" android:textSize="11sp" android:text="0"\2',
-              pt_txt
+              r'<TextView\s+android:id="@\+id/txtPlay1wallet"[^>]*/>',
+              '''<TextView
+                        android:id="@+id/txtPlay1wallet"
+                        style="@style/ShadowWhiteTextview"
+                        android:layout_marginLeft="22dp"
+                        android:layout_marginRight="10dp"
+                        android:textSize="11sp"
+                        android:text="0" />''',
+              pt_txt,
+              count=1,
+              flags=re.S
           )
 
           # Player 1 SEE pill
@@ -2127,9 +2590,12 @@ jobs:
               if os.path.exists(tp_path):
                   with open(tp_path, 'r', encoding='utf-8', errors='replace') as f:
                       jtxt = f.read()
-                  jtxt = jtxt.replace('R.drawable.bgnew1', 'R.drawable.casino_table_backdrop')
-                  jtxt = jtxt.replace('Glide.with(this).load(R.drawable.table_v4).into(imgTable);', 'imgTable.setImageResource(R.drawable.casino_emerald_table);')
-                  jtxt = jtxt.replace('Glide.with(this).load(R.drawable.table_v5).into(imgTable);', 'imgTable.setImageResource(R.drawable.casino_emerald_table);')
+                  jtxt = jtxt.replace('R.drawable.casino_table_backdrop', 'R.drawable.bgnew1')
+                  target_table = 'R.drawable.table_v5' if 'PublicTable_New' in tp_rel else 'R.drawable.table_v4'
+                  jtxt = jtxt.replace(
+                      'imgTable.setImageResource(R.drawable.casino_emerald_table);',
+                      f'Glide.with(this).load({target_table}).into(imgTable);'
+                  )
                   with open(tp_path, 'w', encoding='utf-8') as f:
                       f.write(jtxt)
 
@@ -2143,15 +2609,15 @@ jobs:
           print("All XML files parsed cleanly with zero syntax errors!")
           PYEOF
 
-      - name: Commit & Push Redesigned UI to Repository
+      - name: Commit & Push Backend Fix and Redesigned UI to Repository
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           if git diff --cached --quiet; then
-            echo "UI already up to date."
+            echo "Repo already up to date."
           else
-            git commit -m "Redesign Lobby, Andar Bahar Rooms & Teen Patti Table with Midnight Emerald & Gold UI"
+            git commit -m "Fix Teen Patti ghost-turn freeze, restore 3D table & upgrade casino lobby posters"
             git push origin HEAD:main || git push origin HEAD:master
           fi
 
@@ -2233,6 +2699,18 @@ jobs:
               g_txt = g_txt.replace('android {', 'android {\n    lintOptions {\n        checkReleaseBuilds false\n        abortOnError false\n    }\n', 1)
           with open(app_gradle_path, 'w', encoding='utf-8') as f:
               f.write(g_txt)
+
+          for root_j, _, files_j in os.walk('app/src/main/java'):
+              for fname_j in files_j:
+                  if fname_j.endswith('.java'):
+                      fpath_j = os.path.join(root_j, fname_j)
+                      with open(fpath_j, 'r', encoding='utf-8', errors='replace') as f:
+                          jtxt = f.read()
+                      if 'splunk.mint' in jtxt or 'Mint.' in jtxt:
+                          jtxt = re.sub(r'(?m)^.*com\.splunk\.mint.*\r?\n?', '', jtxt)
+                          jtxt = re.sub(r'(?m)^.*\bMint\.[A-Za-z0-9_]+\(.*?\);\s*\r?\n?', '', jtxt)
+                          with open(fpath_j, 'w', encoding='utf-8') as f:
+                              f.write(jtxt)
           PYEOF
 
           cat << 'EOF' > build.gradle
