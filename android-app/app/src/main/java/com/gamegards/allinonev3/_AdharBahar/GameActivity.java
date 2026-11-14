@@ -49,7 +49,6 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Random;
 import java.util.Timer;
 import java.util.TimerTask;
 
@@ -99,7 +98,6 @@ public class GameActivity extends AppCompatActivity {
     ImageView imgCardsandar,imgCardsbahar;
     Animation setanimation;
     ImageView imgmaincardsvaluehiostory;
-    Button btnandarpercent,btnbaharpercent;
     String betplace = "";
     boolean canbet = false;
     boolean isInPauseState = false;
@@ -151,8 +149,6 @@ public class GameActivity extends AppCompatActivity {
         Picasso.with(context).load(Const.IMGAE_PATH + profile_pic).into(imgpl1circle);
 
         imgmaincardsvaluehiostory = findViewById(R.id.imgmaincardsvaluehiostory);
-        btnbaharpercent = findViewById(R.id.btnbaharpercent);
-        btnandarpercent = findViewById(R.id.btnandarpercent);
 
 
 
@@ -640,10 +636,6 @@ public class GameActivity extends AppCompatActivity {
                                     Picasso.with(context).load(imageResource1).into(imgmaincard);
                                     Picasso.with(context).load(imageResource1).into(imgmaincardsvaluehiostory);
 
-                                    Random r = new Random();
-                                    int randomNumber = r.nextInt(100);
-                                    btnandarpercent.setText(String.valueOf(randomNumber)+"%");
-                                    btnbaharpercent.setText(String.valueOf(100-randomNumber)+"%");
 
 
                                 }
@@ -683,10 +675,6 @@ public class GameActivity extends AppCompatActivity {
                                 }
 //New Game Started here ------------------------------------------------------------------------
                                 if (status.equals("0") && !isGameBegning){
-                                    Random r = new Random();
-                                    int randomNumber = r.nextInt(100);
-                                    btnandarpercent.setText(String.valueOf(randomNumber)+"%");
-                                    btnbaharpercent.setText(String.valueOf(100-randomNumber)+"%");
 
                                     txtGameRunning.setVisibility(View.GONE);
                                     if (counttimerforcards != null){
@@ -725,14 +713,14 @@ public class GameActivity extends AppCompatActivity {
 
                                     rltmainviewbahar.setVisibility(View.GONE);
                                     txt_catbahar.setText("0");
-                                    rlt1to5.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.background_border));
-                                    rlt6to10.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.background_border));
-                                    rlt11to15.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.background_border));
-                                    rlt16to25.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.background_border));
-                                    rlt26to30.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.background_border));
-                                    rlt31to35.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.background_border));
-                                    rlt36to40.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.background_border));
-                                    rlt41more.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.background_border));
+                                    rlt1to5.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.rail_dark));
+                                    rlt6to10.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.rail_dark));
+                                    rlt11to15.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.rail_dark));
+                                    rlt16to25.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.rail_dark));
+                                    rlt26to30.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.rail_dark));
+                                    rlt31to35.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.rail_dark));
+                                    rlt36to40.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.rail_dark));
+                                    rlt41more.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.rail_dark));
 
 
                                     Date c = Calendar.getInstance().getTime();
@@ -948,42 +936,42 @@ public class GameActivity extends AppCompatActivity {
 
 
                                                 if (countvaue > 0 && countvaue < 6){
-                                                    rlt1to5.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.background_border_withcolor));
+                                                    rlt1to5.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.rail_green));
 
                                                 }
 
                                                 if (countvaue > 5 && countvaue < 11){
-                                                    rlt6to10.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.background_border_withcolor));
+                                                    rlt6to10.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.rail_green));
 
                                                 }
 
                                                 if (countvaue > 10 && countvaue < 16){
-                                                    rlt11to15.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.background_border_withcolor));
+                                                    rlt11to15.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.rail_green));
 
                                                 }
 
                                                 if (countvaue > 15 && countvaue < 26){
-                                                    rlt16to25.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.background_border_withcolor));
+                                                    rlt16to25.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.rail_green));
 
                                                 }
 
                                                 if (countvaue > 25 && countvaue < 31){
-                                                    rlt26to30.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.background_border_withcolor));
+                                                    rlt26to30.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.rail_green));
 
                                                 }
 
                                                 if (countvaue > 30 && countvaue < 36){
-                                                    rlt31to35.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.background_border_withcolor));
+                                                    rlt31to35.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.rail_green));
 
                                                 }
 
                                                 if (countvaue > 35 && countvaue < 41){
-                                                    rlt36to40.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.background_border_withcolor));
+                                                    rlt36to40.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.rail_green));
 
                                                 }
 
                                                 if (countvaue > 41){
-                                                    rlt41more.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.background_border_withcolor));
+                                                    rlt41more.setBackground(ContextCompat.getDrawable(GameActivity.this, R.drawable.rail_green));
 
                                                 }
 

@@ -277,7 +277,7 @@ public class Rummy5Player extends AppCompatActivity implements Animation.Animati
         ImageView imgTable = findViewById(R.id.imgTable);
 
         rltParentLayout.setBackgroundResource(R.drawable.club_room);
-        imgTable.setImageResource(R.drawable.club_table);
+        imgTable.setImageResource(R.drawable.rummy_club_felt);
 
         touchmode = findViewById(R.id.touchmode);
         touchmode.setVisibility(View.GONE);
@@ -2566,7 +2566,7 @@ public class Rummy5Player extends AppCompatActivity implements Animation.Animati
                     }
                 }
                 else {
-                    ivpickcard.setImageDrawable(getResources().getDrawable(R.drawable.teenpatti_backcard));
+                    ivpickcard.setImageDrawable(getResources().getDrawable(R.drawable.backside_card));
                 }
 
 
