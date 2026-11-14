@@ -116,7 +116,6 @@ import static com.gamegards.allinonev3.Utils.Funtions.convertDpToPixel;
 
 public class Homepage extends AppCompatActivity {
 
-    Animation animBounce, animBlink;
     private static final String MY_PREFS_NAME = "Login_data";
     ImageView imgLogout, imgshare, imaprofile;
     ImageView imgpublicGame, imgPrivategame, ImgCustomePage, ImgVariationGane,iv_andher;
@@ -289,21 +288,19 @@ public class Homepage extends AppCompatActivity {
 
 
         // load the animation
-        animBounce = AnimationUtils.loadAnimation(getApplicationContext(),
-                R.anim.bounce);
-
-        animBlink = AnimationUtils.loadAnimation(getApplicationContext(),
-                R.anim.blink);
-        imgpublicGame.startAnimation(animBlink);
-        imgpublicGame.startAnimation(animBounce);
-
-
-        imgPrivategame.startAnimation(animBlink);
-        imgPrivategame.startAnimation(animBounce);
-
-
-        ImgCustomePage.startAnimation(animBlink);
-        ImgCustomePage.startAnimation(animBounce);
+        ImageView[] tables = {imgpublicGame, imgPrivategame, ImgCustomePage, ImgVariationGane, iv_andher};
+        for (int i = 0; i < tables.length; i++) {
+            android.view.ViewGroup panel = (android.view.ViewGroup) tables[i].getParent();
+            android.view.ViewGroup frame = (android.view.ViewGroup) panel.getParent();
+            if (android.os.Build.VERSION.SDK_INT >= 21) {
+                panel.setClipToOutline(true);
+                frame.setClipToOutline(true);
+            }
+            frame.setAlpha(0f);
+            frame.setTranslationY(14f * getResources().getDisplayMetrics().density);
+            frame.animate().alpha(1f).translationY(0f).setStartDelay(i * 48L)
+                    .setDuration(320L).setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
+        }
         ImgCustomePage.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
@@ -312,8 +309,6 @@ public class Homepage extends AppCompatActivity {
         });
 
 
-        ImgVariationGane.startAnimation(animBlink);
-        ImgVariationGane.startAnimation(animBounce);
         clickTask();
 
         FirebaseInstanceId.getInstance().getInstanceId()

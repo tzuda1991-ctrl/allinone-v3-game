@@ -4,14 +4,14 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/bgnew1">
+    android:background="@drawable/club_room">
     <!--// Also change from table image if changing-->
 
 
     <RelativeLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@drawable/bgnew1"
+        android:background="@drawable/club_room"
         android:id="@+id/rltParentLayout"
         />
 
@@ -107,7 +107,8 @@
       android:layout_height="310dp"
       android:layout_centerHorizontal="true"
       android:layout_marginTop="55dp"
-      android:src="@drawable/table_v4"
+      android:scaleType="fitXY"
+      android:src="@drawable/club_table"
       />
 
   <RelativeLayout
