@@ -25,6 +25,11 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Check Teen Patti round rules
+        run: |
+          php -l application/controllers/api/Game.php
+          php tests/teen_patti_round.php
+
       - name: Locate Android Project Directory (android-app/ or DemoAllinone-master/ or Root)
         id: locate
         run: |

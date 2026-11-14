@@ -155,10 +155,10 @@ android:visibility="visible"/>
       android:id="@+id/rltGameFinish"
       android:layout_width="wrap_content"
       android:layout_height="wrap_content"
-      android:layout_marginBottom="-150dp"
+      android:layout_marginTop="154dp"
       android:layout_centerHorizontal="true"
       android:paddingRight="15dp"
-      android:layout_above="@+id/imgTable"
+      
       android:paddingLeft="15dp"
       android:background="@drawable/casino_title_plate"
 
@@ -2204,7 +2204,7 @@ android:visibility="gone" />
 
               <ImageView
                   android:id="@+id/imgpl1pack"
-                  android:layout_width="104dp"
+                  android:layout_width="70dp"
                   android:layout_height="36dp"
                   android:layout_gravity="center_vertical"
                   android:scaleType="fitCenter"
@@ -2213,13 +2213,33 @@ android:visibility="gone" />
 
               <ImageView
                   android:id="@+id/imgpl1show"
-                  android:layout_width="104dp"
+                  android:layout_width="70dp"
                   android:layout_height="36dp"
                   android:layout_gravity="center_vertical"
                   android:layout_marginLeft="8dp"
                   android:scaleType="fitCenter"
                   android:src="@drawable/casino_action_show"
                   android:visibility="visible" />
+              <TextView
+                  android:id="@+id/dockSee"
+                  android:layout_width="68dp"
+                  android:layout_height="36dp"
+                  android:layout_marginLeft="5dp"
+                  android:gravity="center"
+                  android:background="@drawable/casino_btn_gold_outline"
+                  android:text="See cards"
+                  android:textColor="#F2DBAC"
+                  android:textSize="12sp" />
+              <TextView
+                  android:id="@+id/dockLimits"
+                  android:layout_width="68dp"
+                  android:layout_height="36dp"
+                  android:layout_marginLeft="5dp"
+                  android:gravity="center"
+                  android:background="@drawable/casino_btn_gold_outline"
+                  android:text="Limits"
+                  android:textColor="#F2DBAC"
+                  android:textSize="12sp" />
           </LinearLayout>
 
           <LinearLayout
@@ -2252,7 +2272,7 @@ android:visibility="gone" />
                       android:layout_marginRight="6dp"
                       android:background="@drawable/casino_btn_gold_outline"
                       android:padding="0dp"
-                      android:text="CHAAL 50"
+                      android:text="Blind"
                       android:textColor="#F5D06F"
                       android:textSize="12sp"
                       android:textStyle="bold" />

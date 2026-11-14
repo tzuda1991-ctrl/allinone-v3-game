@@ -104,6 +104,7 @@ class Game extends CI_Controller {
             $bots = $this->db->where('isDeleted', 0)->where('user_type', 1)->limit(10)->get('tbl_users')->result();
         }
 
+        shuffle($bots);
         foreach ($bots as $bot) {
             if ($needed <= 0) break;
             if (in_array($bot->id, $existing_ids)) continue;
@@ -194,6 +195,68 @@ class Game extends CI_Controller {
         return $best->user_id;
     }
 
+    // A status poll can play a bot turn. Serialize it with every player action.
+    private function with_table_lock($method) {
+        $table_id = $this->resolve_table_id($this->input->post('user_id'));
+        if (!$table_id) {
+            echo json_encode(['code' => 404, 'message' => 'Table not found']);
+            return;
+        }
+        $this->db->trans_begin();
+        $this->db->query('SELECT id FROM tbl_table WHERE id = ? FOR UPDATE', [$table_id]);
+        ob_start();
+        try {
+            $this->$method();
+            $reply = ob_get_clean();
+            if (!$this->db->trans_status()) {
+                $this->db->trans_rollback();
+                echo json_encode(['code' => 500, 'message' => 'Please refresh the table']);
+                return;
+            }
+            $this->db->trans_commit();
+            echo $reply;
+        } catch (Throwable $e) {
+            if (isset($reply) === false) ob_end_clean();
+            $this->db->trans_rollback();
+            throw $e;
+        }
+    }
+
+    private function stake($game, $table, $seen, $raise = false) {
+        $last = $this->Game_model->LastChaal($game->id);
+        $base = $last ? $last->amount / ($last->seen ? 2 : 1) : $table->boot_value;
+        $amount = max($table->boot_value, $base) * ($seen ? 2 : 1) * ($raise ? 2 : 1);
+        $cap = $seen ? $table->chaal_limit : max($table->boot_value, $table->chaal_limit / 2);
+        return max(0, min($amount, $cap, $table->pot_limit - $game->amount));
+    }
+
+    private function settle_if_due($game_id, $table) {
+        $game = $this->Game_model->View($game_id);
+        $players = $this->Game_model->GameUser($game_id);
+        if (!$game->winner_id && (count($players) === 1 || $game->amount >= $table->pot_limit)) {
+            $this->resolve_show_winner($game_id, $players);
+        }
+    }
+
+    private function bot_turn($game, $table, $player) {
+        $hand = $this->Game_model->GameUserCard($game->id, $player->id);
+        if (!$hand) return;
+        $turns = $this->Game_model->ChaalCount($game->id, $player->id);
+        if (!$hand->seen && (($table->maximum_blind > 0 && $turns >= $table->maximum_blind) || mt_rand(1, 100) <= 35)) {
+            $this->Game_model->getMyCards($game->id, $player->id);
+            $hand->seen = 1;
+        }
+        $rank = $hand->seen ? $this->Game_model->CardValue($hand->card1, $hand->card2, $hand->card3)[0] : 0;
+        $raise = $rank >= 2 && mt_rand(1, 100) <= 20;
+        $amount = $this->stake($game, $table, $hand->seen, $raise);
+        if ($amount > $player->wallet || ($rank === 1 && $turns > 0 && mt_rand(1, 100) <= 22)) {
+            $this->Game_model->PackGame($player->id, $game->id);
+        } elseif ($amount > 0) {
+            $this->Game_model->Chaal($game->id, $amount, $player->id);
+        }
+        $this->settle_if_due($game->id, $table);
+    }
+
     public function get_table_master() {
         $tables = $this->Game_model->getTableMaster();
         echo json_encode(['code' => 200, 'message' => 'Success', 'table_data' => $tables ?: []]);
@@ -242,11 +305,13 @@ class Game extends CI_Controller {
             }
         }
         if (!$table_id) {
+            $rules = $this->Game_model->getTableMaster($boot_value);
+            $rule = $rules ? $rules[0] : null;
             $table_id = $this->Game_model->CreateTable([
                 'boot_value' => $boot_value,
-                'maximum_blind' => 4,
-                'chaal_limit' => $boot_value * 128,
-                'pot_limit' => $boot_value * 1024,
+                'maximum_blind' => $rule->maximum_blind ?? 4,
+                'chaal_limit' => $rule->chaal_limit ?? ($boot_value * 128),
+                'pot_limit' => $rule->pot_limit ?? ($boot_value * 1024),
                 'private' => $is_private,
                 'added_date' => date('Y-m-d H:i:s'),
                 'updated_date' => date('Y-m-d H:i:s')
@@ -274,7 +339,9 @@ class Game extends CI_Controller {
         echo json_encode(['code' => 200, 'message' => 'Joined Table', 'table_data' => [['table_id' => (string)$table_id]]]);
     }
 
-    public function start_game() {
+    public function start_game() { $this->with_table_lock('locked_start_game'); }
+
+    private function locked_start_game() {
         $user_id = $this->input->post('user_id');
         $table_id = $this->resolve_table_id($user_id);
         if (!$table_id) {
@@ -348,7 +415,9 @@ class Game extends CI_Controller {
         echo json_encode(['code' => 200, 'message' => 'Game Started', 'game_id' => (string)$game_id]);
     }
 
-    public function status() {
+    public function status() { $this->with_table_lock('locked_status'); }
+
+    private function locked_status() {
         $user_id = $this->input->post('user_id');
         $table_id = $this->resolve_table_id($user_id);
         if ($user_id && $table_id) {
@@ -385,18 +454,7 @@ class Game extends CI_Controller {
                 $last_ts = $last_log ? strtotime($last_log->added_date) : strtotime($active->added_date);
                 $delay = ($last_log && (int)$last_log->action === 0) ? 4 : 2;
                 if (!empty($turn_user) && (int)$turn_user[0]->user_type === 1 && (time() - $last_ts) >= $delay) {
-                    if ((float)$turn_user[0]->wallet < ($boot * 5)) {
-                        $this->db->set('wallet', max(50000, $boot * 20))->where('id', $chaal_uid)->update('tbl_users');
-                    }
-                    $unpacked = array_values(array_filter($game_users, function($g) { return (int)$g->packed === 0; }));
-                    if (count($unpacked) <= 1) {
-                        $this->resolve_show_winner($game_id, $unpacked);
-                    } elseif ((float)$active->amount >= ($boot * 12)) {
-                        $this->Game_model->Show($game_id, $boot, $chaal_uid);
-                        $this->resolve_show_winner($game_id, $unpacked);
-                    } else {
-                        $this->Game_model->Chaal($game_id, $boot, $chaal_uid);
-                    }
+                    $this->bot_turn($active, $table, $turn_user[0]);
                     $active = $this->Game_model->View($game_id);
                     $game_users = $this->Game_model->GameAllUser($game_id);
                     $log = $this->Game_model->GameLog($game_id, 1);
@@ -442,7 +500,9 @@ class Game extends CI_Controller {
             }
 
             $game_amount = (string)$active->amount;
-            $table_amount = $last_log ? (string)$last_log->amount : (string)$boot;
+            $seen = $this->Game_model->isCardSeen($game_id, $user_id);
+            $table_amount = (string)$this->stake($active, $table, $seen);
+            $raise_amount = (string)$this->stake($active, $table, $seen, true);
             if ($user_id) {
                 $my_row = $this->db->where('game_id', $game_id)->where('user_id', $user_id)->get('tbl_game_card')->row();
                 if ($my_row && (int)$my_row->seen === 1) {
@@ -462,6 +522,20 @@ class Game extends CI_Controller {
             }
         }
 
+        // Stable seat names for this table, with visible computer-player attribution.
+        $names = ['Asha','Kabir','Mira','Dev','Nisha','Ishan','Tara','Veer','Diya','Kunal','Riya','Arjun'];
+        foreach ($table_users as $seat) {
+            if ((int)$seat->user_type === 1) {
+                $seat->name = $names[((int)$table_id * 7 + (int)$seat->seat_position) % count($names)] . ' · AI';
+            }
+        }
+        foreach ($game_users as $hand) {
+            if ($game_status !== '2' || $hand->packed) unset($hand->card1, $hand->card2, $hand->card3);
+        }
+        if ($game_status === '2' && count($this->Game_model->GameUser($game_id)) > 1 && $log) {
+            // The Android clients reveal the remaining hands on a showdown log.
+            $log[0]->action = 3;
+        }
         $resp = [
             'code' => 200,
             'message' => 'Success',
@@ -473,6 +547,7 @@ class Game extends CI_Controller {
             'active_game_id' => (string)$game_id,
             'game_status' => $game_status,
             'table_amount' => $table_amount,
+            'raise_amount' => $raise_amount ?? $table_amount,
             'game_amount' => $game_amount,
             'cards' => $cards ?: [],
             'slide_show' => $game_id ? $this->Game_model->GetSlideShow($game_id) : []
@@ -489,67 +564,67 @@ class Game extends CI_Controller {
         echo json_encode($resp);
     }
 
-    public function see_card() {
-        $user_id = $this->input->post('user_id');
-        $game_id = $this->resolve_game_id($user_id);
-        $cards = $game_id ? $this->Game_model->getMyCards($game_id, $user_id) : [];
-        echo json_encode(['code' => 200, 'message' => 'Success', 'cards' => $cards ?: []]);
-    }
+    public function chaal() { $this->with_table_lock('locked_chaal'); }
+    private function locked_chaal() { $this->player_action('chaal'); }
 
-    public function chaal() {
-        $user_id = $this->input->post('user_id');
-        $table_id = $this->resolve_table_id($user_id);
-        $game_id = $this->resolve_game_id($user_id, $table_id);
-        $amount = $this->input->post('amount');
-        if (!$amount && $game_id) {
-            $table = $table_id ? $this->Game_model->isTableAvail($table_id) : null;
-            $boot = $table ? (float)$table->boot_value : 10;
-            $last_log = $this->Game_model->LastChaal($game_id);
-            $base = $last_log ? (float)$last_log->amount : $boot;
-            if ($base <= 0) $base = $boot;
-            $amount = ($this->input->post('plus') === '1') ? ($base * 2) : $base;
-        }
-        $u = $user_id ? $this->Users_model->UserProfile($user_id) : [];
-        if (!empty($u) && (float)$u[0]->wallet < (float)$amount) {
-            echo json_encode(['code' => 406, 'message' => 'Insufficient Coins']);
+    public function show_game() { $this->with_table_lock('locked_show_game'); }
+    private function locked_show_game() { $this->player_action('show_game'); }
+
+    public function pack_game() { $this->with_table_lock('locked_pack_game'); }
+    private function locked_pack_game() { $this->player_action('pack_game'); }
+
+    public function see_card() { $this->with_table_lock('locked_see_card'); }
+    private function locked_see_card() { $this->player_action('see_card'); }
+
+    private function player_action($action) {
+        $uid = $this->input->post('user_id');
+        $table_id = $this->resolve_table_id($uid);
+        $game = $this->Game_model->getActiveGameOnTable($table_id);
+        $expected = $this->input->post('game_id');
+        $hand = $game ? $this->Game_model->GameUserCard($game->id, $uid) : null;
+        if (!$hand || ($expected && (string)$expected !== (string)$game->id)) {
+            echo json_encode(['code' => 409, 'message' => 'Round changed']);
             return;
         }
-        if ($game_id) {
-            $this->Game_model->Chaal($game_id, (float)$amount, $user_id);
+        if ($action === 'see_card') {
+            echo json_encode(['code' => 200, 'cards' => $this->Game_model->getMyCards($game->id, $uid)]);
+            return;
         }
-        echo json_encode(['code' => 200, 'message' => 'Chaal Played']);
-    }
-
-    public function pack_game() {
-        $user_id = $this->input->post('user_id');
-        $game_id = $this->resolve_game_id($user_id);
-        if ($game_id) {
-            $this->Game_model->PackGame($user_id, $game_id);
-            $game_users = $this->Game_model->GameAllUser($game_id);
-            $unpacked = array_values(array_filter($game_users, function($g) { return (int)$g->packed === 0; }));
-            if (count($unpacked) === 1) {
-                $this->resolve_show_winner($game_id, $unpacked);
+        $players = $this->Game_model->GameAllUser($game->id);
+        $log = $this->Game_model->GameLog($game->id, 1);
+        if ((string)$uid !== $this->get_turn_user_id($game->id, $players, $log ? $log[0] : null)) {
+            echo json_encode(['code' => 409, 'message' => 'Wait for your turn']);
+            return;
+        }
+        $active = $this->Game_model->GameUser($game->id);
+        $table = $this->Game_model->isTableAvail($table_id);
+        if ($action === 'pack_game') {
+            $this->Game_model->PackGame($uid, $game->id);
+        } else {
+            if ($action === 'show_game' && count($active) !== 2) {
+                echo json_encode(['code' => 409, 'message' => 'Show needs two active players']);
+                return;
+            }
+            if ($action === 'chaal' && !$hand->seen && $table->maximum_blind > 0 &&
+                $this->Game_model->ChaalCount($game->id, $uid) >= $table->maximum_blind) {
+                echo json_encode(['code' => 406, 'message' => 'Blind limit reached. See your cards first.']);
+                return;
+            }
+            $amount = $this->stake($game, $table, $hand->seen, $action === 'chaal' && $this->input->post('plus') === '1');
+            $profile = $this->Users_model->UserProfile($uid);
+            if (!$profile || $amount > $profile[0]->wallet) {
+                echo json_encode(['code' => 406, 'message' => 'Insufficient coins']);
+                return;
+            }
+            if ($action === 'show_game') {
+                $this->Game_model->Show($game->id, $amount, $uid);
+                $this->resolve_show_winner($game->id, $active);
+            } elseif ($amount > 0) {
+                $this->Game_model->Chaal($game->id, $amount, $uid);
             }
         }
-        echo json_encode(['code' => 200, 'message' => 'Packed']);
-    }
-
-    public function show_game() {
-        $user_id = $this->input->post('user_id');
-        $table_id = $this->resolve_table_id($user_id);
-        $game_id = $this->resolve_game_id($user_id, $table_id);
-        $table = $table_id ? $this->Game_model->isTableAvail($table_id) : null;
-        $boot = $table ? (float)$table->boot_value : 10;
-        $amount = (float)($this->input->post('amount') ?: $boot);
-        if ($game_id) {
-            $this->Game_model->Show($game_id, $amount, $user_id);
-            $game_users = $this->Game_model->GameAllUser($game_id);
-            $unpacked = array_values(array_filter($game_users, function($g) { return (int)$g->packed === 0; }));
-            if (!empty($unpacked)) {
-                $this->resolve_show_winner($game_id, $unpacked);
-            }
-        }
-        echo json_encode(['code' => 200, 'message' => 'Show Declared']);
+        $this->settle_if_due($game->id, $table);
+        echo json_encode(['code' => 200, 'message' => 'Action completed']);
     }
 
     public function slide_show() {

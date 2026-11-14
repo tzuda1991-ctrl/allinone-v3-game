@@ -129,6 +129,9 @@ public class PrivateTablev2 extends AppCompatActivity {
             animMoveCardsPlayer4, animMoveCardsPlayer5, animAmpireblink, animMoveCardsPlayerwinner1, animMoveCardsPlayerwinner2, animMoveCardsreferycomi,
             animMoveCardsPlayerwinner3, animMoveCardsPlayerwinner4, animMoveCardsPlayerwinner5;
     private String table_amount = "";
+    private String raisedStake = "";
+    private String highlightedPlayer = "";
+    private String lastFinishedRound = "";
     private String walletplayer1, walletplayer2, walletplayer3, walletplayer4, walletplayer5;
     String table_id = "";
     String user_id_player1 = "";
@@ -165,7 +168,6 @@ public class PrivateTablev2 extends AppCompatActivity {
     boolean isProgressrun4 = true;
     boolean isProgressrun5 = true;
 
-    int count = 8;
     String sentamounttype = "0";
     String typeUrl;
     int cardsani = 1;
@@ -486,10 +488,9 @@ public class PrivateTablev2 extends AppCompatActivity {
 
             @Override
             public void onTick(long millisUntilFinished) {
-                count--;
                 txtGameFinish.setVisibility(View.VISIBLE);
                 rltGameFinish.setVisibility(View.VISIBLE);
-                txtGameFinish.setText("Round will start in " + count+" second");
+                txtGameFinish.setText("Next hand in " + ((millisUntilFinished + 999L) / 1000L) + "s");
 
             }
 
@@ -503,7 +504,8 @@ public class PrivateTablev2 extends AppCompatActivity {
 
 
         };
-        count = 8;
+
+        counttimerforstartgame.cancel();
         counttimerforstartgame.start();
 
         timerstatus = new Timer();
@@ -1021,32 +1023,24 @@ public class PrivateTablev2 extends AppCompatActivity {
             }
         });
 
-        imgpl1minus.setEnabled(false);
         imgpl1minus.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
+            @Override public void onClick(View view) {
                 sentamounttype = "0";
+                renderStake();
             }
         });
         imgpl1plus.setOnClickListener(new View.OnClickListener() {
-
-
-            @Override
-            public void onClick(View view) {
-                //GameShow();
-                imgpl1minus.setEnabled(true);
+            @Override public void onClick(View view) {
                 sentamounttype = "1";
-                float value = Float.parseFloat(table_amount);
-                updatedamount = value * 2;
-
-                String next = "<font color='#FFFFFF'>CHAAL   </font>";
-                btnpl1number.setText(Html.fromHtml(next + "   " + updatedamount));
-
-
-
+                renderStake();
             }
         });
-
+        findViewById(R.id.dockSee).setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View view) { SeeCards1(); }
+        });
+        findViewById(R.id.dockLimits).setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View view) { showDialoagoninfo(); }
+        });
         btnpl1number.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
@@ -1921,7 +1915,34 @@ public class PrivateTablev2 extends AppCompatActivity {
 
     }
 
+    private void renderStake() {
+        if (table_amount.isEmpty() || raisedStake.isEmpty()) return;
+        float minimum = Float.parseFloat(table_amount);
+        float maximum = Float.parseFloat(raisedStake);
+        if (maximum <= minimum) sentamounttype = "0";
+        boolean raised = "1".equals(sentamounttype);
+        updatedamount = raised ? maximum : minimum;
+        String mode = isSeenUser ? "Chaal" : "Blind";
+        imgblind1.setText(mode);
+        btnpl1number.setText(mode + "  ₹" + new java.text.DecimalFormat("0.##").format(updatedamount));
+        imgpl1plus.setEnabled(!raised && maximum > minimum);
+        imgpl1minus.setEnabled(raised);
+        imgpl1plus.setAlpha(imgpl1plus.isEnabled() ? 1f : .4f);
+        imgpl1minus.setAlpha(raised ? 1f : .4f);
+        findViewById(R.id.dockSee).setVisibility(isSeenUser ? View.GONE : View.VISIBLE);
+    }
+
     public void makeHightLightForChaal(String chaal_user_id) {
+        if (!chaal_user_id.equals(highlightedPlayer)) {
+            highlightedPlayer = chaal_user_id;
+            View[] portraits = {imgpl1circle, imgpl2circle, imgpl3circle, imgpl4circle, imgpl5circle};
+            String[] seats = {user_id_player1, user_id_player2, user_id_player3, user_id_player4, user_id_player5};
+            for (int i = 0; i < seats.length; i++) {
+                float scale = chaal_user_id.equals(seats[i]) ? 1.1f : 1f;
+                portraits[i].animate().scaleX(scale).scaleY(scale).setDuration(220L).start();
+            }
+        }
+
 
         if (chaal_user_id.equals(user_id_player1)) {
             lnrGameButton.setVisibility(View.VISIBLE);
@@ -2117,6 +2138,8 @@ public class PrivateTablev2 extends AppCompatActivity {
     }
 
     public void makeWinnertoPlayer(String chaal_user_id) {
+        if (game_id.equals(lastFinishedRound)) return;
+        lastFinishedRound = game_id;
 
         PlaySaund(R.raw.tpb_battle_won);
         isProgressrun1 = true;
@@ -2205,7 +2228,8 @@ public class PrivateTablev2 extends AppCompatActivity {
 
         txtGameFinish.setVisibility(View.VISIBLE);
         rltGameFinish.setVisibility(View.VISIBLE);
-        count = 8;
+
+        counttimerforstartgame.cancel();
         counttimerforstartgame.start();
 
     }
@@ -3140,12 +3164,17 @@ public class PrivateTablev2 extends AppCompatActivity {
                             if (jsonObject.has("active_game_id")) {
 
 
+                                if (!game_id.equals(jsonObject.getString("active_game_id"))) {
+                                    sentamounttype = "0";
+                                    highlightedPlayer = "";
+                                }
                                 game_id = jsonObject.getString("active_game_id");
                                 if (game_id.equals("0")) {
                                     game_id = "";
                                 }
 
                                 String game_status = jsonObject.getString("game_status");
+                                if ("1".equals(game_status)) counttimerforstartgame.cancel();
                                 if (game_status.equals("0")) {
 
                                     makegone();
@@ -3164,17 +3193,8 @@ public class PrivateTablev2 extends AppCompatActivity {
                                     isGameStartforseeebtn = true;
 
                                     table_amount = jsonObject.getString("table_amount");
+                                    raisedStake = jsonObject.optString("raise_amount", String.valueOf(2 * Float.parseFloat(table_amount)));
 
-
-                                    if (sentamounttype.equals("1")) {
-
-                                    } else {
-
-
-                                        String next = "<font color='#FFFFFF'>CHAAL   </font>";
-                                        btnpl1number.setText(Html.fromHtml(next + "   " + table_amount));
-
-                                    }
 
                                     txtGameFinish.setVisibility(View.GONE);
                                     rltGameFinish.setVisibility(View.GONE);
@@ -3565,41 +3585,11 @@ public class PrivateTablev2 extends AppCompatActivity {
 
                             }
 
-                            if (table_amount.length() > 0 && chaal_limit.length() > 0) {
-
-                                float inttableamount = Float.parseFloat(table_amount);
-                                float intchaal_limit = Float.parseFloat(chaal_limit);
-
-
-                                if (isSeenUser) {
-
-                                    System.out.println("scs");
-                                    if (inttableamount >= intchaal_limit) {
-
-                                        imgpl1plus.setEnabled(false);
-
-                                    } else {
-                                        //imgpl1plus.setEnabled(true);
-
-                                    }
-
-                                } else {
-
-                                    System.out.println("scs");
-                                    if (inttableamount >= intchaal_limit / 2) {
-
-                                        imgpl1plus.setEnabled(false);
-
-                                    } else {
-                                        // imgpl1plus.setEnabled(true);
-
-                                    }
-
-
-                                }
-
+                            if ("1".equals(jsonObject.optString("game_status"))) {
+                                renderStake();
+                                imgpl1show.setVisibility(playercount == 2 ? View.VISIBLE : View.GONE);
+                                imgpl1show.setImageResource(R.drawable.casino_action_show);
                             }
-
 
                         } catch (JSONException e) {
                             e.printStackTrace();
@@ -4167,6 +4157,7 @@ public class PrivateTablev2 extends AppCompatActivity {
 
     private void GamePack(final String type) {
 
+        final String requestedRound = game_id;
         StringRequest stringRequest = new StringRequest(Request.Method.POST, Const.GAME_PACK,
                 new Response.Listener<String>() {
                     @Override
@@ -4216,7 +4207,8 @@ public class PrivateTablev2 extends AppCompatActivity {
             protected Map<String, String> getParams() {
                 Map<String, String> params = new HashMap<String, String>();
                 SharedPreferences prefs = getSharedPreferences(MY_PREFS_NAME, MODE_PRIVATE);
-                //params.put("user_id",prefs.getString("user_id", ""));
+                //params.put("game_id", requestedRound);
+                params.put("user_id",prefs.getString("user_id", ""));
                 params.put("user_id", chaak_user_id);
                 //if (type.equals("1")){
                 params.put("token", prefs.getString("token", ""));
@@ -4269,6 +4261,7 @@ public class PrivateTablev2 extends AppCompatActivity {
         txt_coin_to_girl_player1.startAnimation(animMove1_2);
 
 
+        final String requestedRound = game_id;
         StringRequest stringRequest = new StringRequest(Request.Method.POST, Const.GAME_CHAAL,
                 new Response.Listener<String>() {
                     @Override
@@ -4277,6 +4270,12 @@ public class PrivateTablev2 extends AppCompatActivity {
                         try {
                             JSONObject jsonObject = new JSONObject(response);
                             String code = jsonObject.getString("code");
+                            if (!"200".equals(code)) {
+                                isChalClick = false;
+                                Toast.makeText(context, jsonObject.optString("message"), Toast.LENGTH_SHORT).show();
+                                GameStatus();
+                                return;
+                            }
                             String message = jsonObject.getString("message");
                             if (code.equals("200")) {
 
@@ -4299,7 +4298,8 @@ public class PrivateTablev2 extends AppCompatActivity {
 
                                 //SharedPreferences prefs = getSharedPreferences(MY_PREFS_NAME,
                                 // MODE_PRIVATE);
-                                // params.put("user_id", prefs.getString("user_id", ""));
+                                // params.put("game_id", requestedRound);
+                params.put("user_id", prefs.getString("user_id", ""));
                                 //makeshowchaalamountfloat(prefs.getString("user_id", ""));
 
 
@@ -4372,6 +4372,7 @@ public class PrivateTablev2 extends AppCompatActivity {
 //        progressDialog.setCancelable(false);
 //        progressDialog.setMessage("Logging in..");
 //        progressDialog.show();
+        final String requestedRound = game_id;
         StringRequest stringRequest = new StringRequest(Request.Method.POST, Const.GAME_SHOW,
                 new Response.Listener<String>() {
                     @Override
@@ -4399,7 +4400,8 @@ public class PrivateTablev2 extends AppCompatActivity {
 
                                 // SharedPreferences prefs = getSharedPreferences(MY_PREFS_NAME,
                                 //   MODE_PRIVATE);
-                                // params.put("user_id", prefs.getString("user_id", ""));
+                                // params.put("game_id", requestedRound);
+                params.put("user_id", prefs.getString("user_id", ""));
                                 //makeshowchaalamountfloat(prefs.getString("user_id", ""));
                                 PlaySaund(R.raw.teenpattichipstotable);
                                 txt_coin_to_girl_player1.setText(Variables.CURRENCY_SYMBOL + table_amount);
@@ -4517,6 +4519,7 @@ public class PrivateTablev2 extends AppCompatActivity {
 
     private void SeeCards1() {
 
+        final String requestedRound = game_id;
         StringRequest stringRequest = new StringRequest(Request.Method.POST, Const.SEE_CARDS,
                 new Response.Listener<String>() {
                     @Override
@@ -4532,7 +4535,10 @@ public class PrivateTablev2 extends AppCompatActivity {
                                 PlaySaund(R.raw.teenpatticardflip_android);
                                 rltSee1.setVisibility(View.GONE);
 
-                                if (jsonObject.has("cards")) {
+                                if (jsonObject.optJSONArray("cards") != null && jsonObject.getJSONArray("cards").length() > 0 && requestedRound.equals(game_id)) {
+                                    isSeenUser = true;
+                                    findViewById(R.id.dockSee).setVisibility(View.GONE);
+                                    GameStatus();
                                     imgsee1.setVisibility(View.GONE);
                                     imgseen1.setVisibility(View.GONE);
                                     imgblind1.setVisibility(View.VISIBLE);
@@ -4598,6 +4604,7 @@ public class PrivateTablev2 extends AppCompatActivity {
             protected Map<String, String> getParams() {
                 Map<String, String> params = new HashMap<String, String>();
                 SharedPreferences prefs = getSharedPreferences(MY_PREFS_NAME, MODE_PRIVATE);
+                params.put("game_id", requestedRound);
                 params.put("user_id", prefs.getString("user_id", ""));
                 params.put("token", prefs.getString("token", ""));
                 return params;
@@ -4735,7 +4742,8 @@ public class PrivateTablev2 extends AppCompatActivity {
 
                                 mProgress1.setProgress(0);
                                 mCountDownTimer1.cancel();
-                                count = 8;
+
+                                counttimerforstartgame.cancel();
                                 counttimerforstartgame.start();
                                 //  txtTableid.setText(table_id);
                             } else {
@@ -4790,6 +4798,7 @@ public class PrivateTablev2 extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        if (counttimerforstartgame != null) counttimerforstartgame.cancel();
 
         mCountDownTimer1.cancel();
         mCountDownTimer2.cancel();
