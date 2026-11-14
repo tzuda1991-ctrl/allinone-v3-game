@@ -188,7 +188,6 @@ public class ActiveTables_BF extends BottomSheetDialogFragment {
     }
 
     private void ParseResponse(String resp) {
-        usermodelsList.clear();
         try {
             JSONObject jsonObject = new JSONObject(resp);
             int code = jsonObject.optInt("code",404);
@@ -224,6 +223,7 @@ public class ActiveTables_BF extends BottomSheetDialogFragment {
             {
 
                 JSONArray tableArray = jsonObject.getJSONArray("table_data");
+                usermodelsList.clear();
 
                 for (int i = 0; i < tableArray.length() ; i++) {
                     JSONObject tableObject = tableArray.getJSONObject(i);

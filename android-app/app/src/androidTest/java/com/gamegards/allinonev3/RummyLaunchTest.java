@@ -8,7 +8,6 @@ import android.content.SharedPreferences;
 import android.view.View;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.test.platform.app.InstrumentationRegistry;
-import com.gamegards.allinonev3.Activity.Homepage;
 import com.gamegards.allinonev3.Fragments.ActiveTables_BF;
 import com.gamegards.allinonev3._Rummy.Rummy5Player;
 import com.gamegards.allinonev3._TeenPatti.PublicTable;
@@ -21,9 +20,9 @@ public class RummyLaunchTest {
         final Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
         Context context = instrumentation.getTargetContext();
         final SharedPreferences prefs = context.getSharedPreferences(PublicTable.MY_PREFS_NAME, Context.MODE_PRIVATE);
-        Intent intent = new Intent(context, Homepage.class);
+        Intent intent = new Intent(context, Rummy5Player.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        final Homepage lobby = (Homepage) instrumentation.startActivitySync(intent);
+        final Rummy5Player lobby = (Rummy5Player) instrumentation.startActivitySync(intent);
         final Method populate = ActiveTables_BF.class.getDeclaredMethod("ParseResponse", String.class);
         populate.setAccessible(true);
         for (boolean twoPlayers : new boolean[]{true, false}) {
