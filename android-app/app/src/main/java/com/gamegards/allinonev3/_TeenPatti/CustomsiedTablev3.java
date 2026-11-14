@@ -243,8 +243,8 @@ public class CustomsiedTablev3 extends AppCompatActivity {
         RelativeLayout rltParentLayout = findViewById(R.id.rltParentLayout);
         ImageView imgTable = findViewById(R.id.imgTable);
 
-        SetBackgroundImageAsDisplaySize(this,rltParentLayout,R.drawable.casino_table_backdrop);
-        imgTable.setImageResource(R.drawable.casino_emerald_table);
+        SetBackgroundImageAsDisplaySize(this,rltParentLayout,R.drawable.bgnew1);
+        Glide.with(this).load(R.drawable.table_v4).into(imgTable);
 
 
         Intent intent = getIntent();

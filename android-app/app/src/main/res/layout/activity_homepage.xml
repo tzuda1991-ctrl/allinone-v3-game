@@ -425,351 +425,81 @@
   android:layout_height="match_parent"
   android:layout_below="@id/casino_lobby_title"
   android:layout_marginTop="8dp"
-  android:layout_marginBottom="14dp"
+  android:layout_marginBottom="12dp"
   android:gravity="center"
   android:orientation="horizontal"
-  android:paddingLeft="14dp"
-  android:paddingRight="14dp">
+  android:paddingLeft="12dp"
+  android:paddingRight="12dp">
 
   <!-- 1: 3 PATTI -->
-  <RelativeLayout
+  <ImageView
+      android:id="@+id/imgpublicGame"
       android:layout_width="0dp"
       android:layout_height="match_parent"
       android:layout_marginLeft="5dp"
       android:layout_marginRight="5dp"
       android:layout_weight="1"
-      android:background="@drawable/casino_card_teenpatti"
+      android:clickable="true"
+      android:contentDescription="3 PATTI"
       android:elevation="6dp"
-      android:padding="10dp">
-
-      <ImageView
-          android:id="@+id/imgpublicGame"
-          android:layout_width="match_parent"
-          android:layout_height="match_parent"
-          android:clickable="true"
-          android:contentDescription="3 PATTI"
-          android:paddingLeft="8dp"
-          android:paddingRight="8dp"
-          android:paddingTop="24dp"
-          android:paddingBottom="62dp"
-          android:scaleType="fitCenter"
-          android:src="@drawable/casino_emblem_teenpatti" />
-
-      <TextView
-          android:layout_width="wrap_content"
-          android:layout_height="20dp"
-          android:layout_alignParentTop="true"
-          android:layout_centerHorizontal="true"
-          android:background="@drawable/casino_badge_tag"
-          android:clickable="false"
-          android:focusable="false"
-          android:gravity="center"
-          android:paddingLeft="10dp"
-          android:paddingRight="10dp"
-          android:text="CLASSIC"
-          android:textColor="#34D399"
-          android:textSize="9sp"
-          android:textStyle="bold" />
-
-      <TextView
-          android:layout_width="match_parent"
-          android:layout_height="wrap_content"
-          android:layout_above="@+id/cta_3patti"
-          android:layout_marginBottom="8dp"
-          android:clickable="false"
-          android:focusable="false"
-          android:gravity="center"
-          android:text="3 PATTI"
-          android:textColor="#FFFFFF"
-          android:textSize="16sp"
-          android:textStyle="bold" />
-
-      <TextView
-          android:id="@+id/cta_3patti"
-          android:layout_width="match_parent"
-          android:layout_height="30dp"
-          android:layout_alignParentBottom="true"
-          android:background="@drawable/casino_play_pill"
-          android:clickable="false"
-          android:focusable="false"
-          android:gravity="center"
-          android:text="PLAY  ›"
-          android:textColor="#FFFFFF"
-          android:textSize="11sp"
-          android:textStyle="bold" />
-  </RelativeLayout>
+      android:scaleType="fitXY"
+      android:src="@drawable/casino_poster_teenpatti" />
 
   <!-- 2: PRIVATE TABLE -->
-  <RelativeLayout
+  <ImageView
+      android:id="@+id/imgPrivategame"
       android:layout_width="0dp"
       android:layout_height="match_parent"
       android:layout_marginLeft="5dp"
       android:layout_marginRight="5dp"
       android:layout_weight="1"
-      android:background="@drawable/casino_card_private"
+      android:clickable="true"
+      android:contentDescription="PRIVATE TABLE"
       android:elevation="6dp"
-      android:padding="10dp">
-
-      <ImageView
-          android:id="@+id/imgPrivategame"
-          android:layout_width="match_parent"
-          android:layout_height="match_parent"
-          android:clickable="true"
-          android:contentDescription="PRIVATE TABLE"
-          android:paddingLeft="8dp"
-          android:paddingRight="8dp"
-          android:paddingTop="24dp"
-          android:paddingBottom="62dp"
-          android:scaleType="fitCenter"
-          android:src="@drawable/casino_emblem_private" />
-
-      <TextView
-          android:layout_width="wrap_content"
-          android:layout_height="20dp"
-          android:layout_alignParentTop="true"
-          android:layout_centerHorizontal="true"
-          android:background="@drawable/casino_badge_tag"
-          android:clickable="false"
-          android:focusable="false"
-          android:gravity="center"
-          android:paddingLeft="10dp"
-          android:paddingRight="10dp"
-          android:text="FRIENDS"
-          android:textColor="#60A5FA"
-          android:textSize="9sp"
-          android:textStyle="bold" />
-
-      <TextView
-          android:layout_width="match_parent"
-          android:layout_height="wrap_content"
-          android:layout_above="@+id/cta_private"
-          android:layout_marginBottom="8dp"
-          android:clickable="false"
-          android:focusable="false"
-          android:gravity="center"
-          android:text="PRIVATE"
-          android:textColor="#FFFFFF"
-          android:textSize="16sp"
-          android:textStyle="bold" />
-
-      <TextView
-          android:id="@+id/cta_private"
-          android:layout_width="match_parent"
-          android:layout_height="30dp"
-          android:layout_alignParentBottom="true"
-          android:background="@drawable/casino_play_pill"
-          android:clickable="false"
-          android:focusable="false"
-          android:gravity="center"
-          android:text="PLAY  ›"
-          android:textColor="#FFFFFF"
-          android:textSize="11sp"
-          android:textStyle="bold" />
-  </RelativeLayout>
+      android:scaleType="fitXY"
+      android:src="@drawable/casino_poster_private" />
 
   <!-- 3: CUSTOM BOOT -->
-  <RelativeLayout
+  <ImageView
+      android:id="@+id/ImgCustomePage"
       android:layout_width="0dp"
       android:layout_height="match_parent"
       android:layout_marginLeft="5dp"
       android:layout_marginRight="5dp"
       android:layout_weight="1"
-      android:background="@drawable/casino_card_custom"
+      android:clickable="true"
+      android:contentDescription="CUSTOM BOOT"
       android:elevation="6dp"
-      android:padding="10dp">
-
-      <ImageView
-          android:id="@+id/ImgCustomePage"
-          android:layout_width="match_parent"
-          android:layout_height="match_parent"
-          android:clickable="true"
-          android:contentDescription="CUSTOM BOOT"
-          android:paddingLeft="8dp"
-          android:paddingRight="8dp"
-          android:paddingTop="24dp"
-          android:paddingBottom="62dp"
-          android:scaleType="fitCenter"
-          android:src="@drawable/casino_emblem_custom" />
-
-      <TextView
-          android:layout_width="wrap_content"
-          android:layout_height="20dp"
-          android:layout_alignParentTop="true"
-          android:layout_centerHorizontal="true"
-          android:background="@drawable/casino_badge_tag"
-          android:clickable="false"
-          android:focusable="false"
-          android:gravity="center"
-          android:paddingLeft="10dp"
-          android:paddingRight="10dp"
-          android:text="CUSTOM"
-          android:textColor="#FBBF24"
-          android:textSize="9sp"
-          android:textStyle="bold" />
-
-      <TextView
-          android:layout_width="match_parent"
-          android:layout_height="wrap_content"
-          android:layout_above="@+id/cta_custom"
-          android:layout_marginBottom="8dp"
-          android:clickable="false"
-          android:focusable="false"
-          android:gravity="center"
-          android:text="CUSTOM BOOT"
-          android:textColor="#FFFFFF"
-          android:textSize="15sp"
-          android:textStyle="bold" />
-
-      <TextView
-          android:id="@+id/cta_custom"
-          android:layout_width="match_parent"
-          android:layout_height="30dp"
-          android:layout_alignParentBottom="true"
-          android:background="@drawable/casino_play_pill"
-          android:clickable="false"
-          android:focusable="false"
-          android:gravity="center"
-          android:text="PLAY  ›"
-          android:textColor="#FFFFFF"
-          android:textSize="11sp"
-          android:textStyle="bold" />
-  </RelativeLayout>
+      android:scaleType="fitXY"
+      android:src="@drawable/casino_poster_custom" />
 
   <!-- 4: RUMMY -->
-  <RelativeLayout
+  <ImageView
+      android:id="@+id/ImgVariationGane"
       android:layout_width="0dp"
       android:layout_height="match_parent"
       android:layout_marginLeft="5dp"
       android:layout_marginRight="5dp"
       android:layout_weight="1"
-      android:background="@drawable/casino_card_rummy"
+      android:clickable="true"
+      android:contentDescription="RUMMY"
       android:elevation="6dp"
-      android:padding="10dp">
-
-      <ImageView
-          android:id="@+id/ImgVariationGane"
-          android:layout_width="match_parent"
-          android:layout_height="match_parent"
-          android:clickable="true"
-          android:contentDescription="RUMMY"
-          android:paddingLeft="8dp"
-          android:paddingRight="8dp"
-          android:paddingTop="24dp"
-          android:paddingBottom="62dp"
-          android:scaleType="fitCenter"
-          android:src="@drawable/casino_emblem_rummy" />
-
-      <TextView
-          android:layout_width="wrap_content"
-          android:layout_height="20dp"
-          android:layout_alignParentTop="true"
-          android:layout_centerHorizontal="true"
-          android:background="@drawable/casino_badge_tag"
-          android:clickable="false"
-          android:focusable="false"
-          android:gravity="center"
-          android:paddingLeft="10dp"
-          android:paddingRight="10dp"
-          android:text="13 CARDS"
-          android:textColor="#C084FC"
-          android:textSize="9sp"
-          android:textStyle="bold" />
-
-      <TextView
-          android:layout_width="match_parent"
-          android:layout_height="wrap_content"
-          android:layout_above="@+id/cta_rummy"
-          android:layout_marginBottom="8dp"
-          android:clickable="false"
-          android:focusable="false"
-          android:gravity="center"
-          android:text="RUMMY"
-          android:textColor="#FFFFFF"
-          android:textSize="16sp"
-          android:textStyle="bold" />
-
-      <TextView
-          android:id="@+id/cta_rummy"
-          android:layout_width="match_parent"
-          android:layout_height="30dp"
-          android:layout_alignParentBottom="true"
-          android:background="@drawable/casino_play_pill"
-          android:clickable="false"
-          android:focusable="false"
-          android:gravity="center"
-          android:text="PLAY  ›"
-          android:textColor="#FFFFFF"
-          android:textSize="11sp"
-          android:textStyle="bold" />
-  </RelativeLayout>
+      android:scaleType="fitXY"
+      android:src="@drawable/casino_poster_rummy" />
 
   <!-- 5: ANDAR BAHAR -->
-  <RelativeLayout
+  <ImageView
+      android:id="@+id/iv_andher"
       android:layout_width="0dp"
       android:layout_height="match_parent"
       android:layout_marginLeft="5dp"
       android:layout_marginRight="5dp"
       android:layout_weight="1"
-      android:background="@drawable/casino_card_andarbahar"
+      android:clickable="true"
+      android:contentDescription="ANDAR BAHAR"
       android:elevation="6dp"
-      android:padding="10dp">
-
-      <ImageView
-          android:id="@+id/iv_andher"
-          android:layout_width="match_parent"
-          android:layout_height="match_parent"
-          android:clickable="true"
-          android:contentDescription="ANDAR BAHAR"
-          android:paddingLeft="8dp"
-          android:paddingRight="8dp"
-          android:paddingTop="24dp"
-          android:paddingBottom="62dp"
-          android:scaleType="fitCenter"
-          android:src="@drawable/casino_emblem_ab" />
-
-      <TextView
-          android:layout_width="wrap_content"
-          android:layout_height="20dp"
-          android:layout_alignParentTop="true"
-          android:layout_centerHorizontal="true"
-          android:background="@drawable/casino_badge_tag"
-          android:clickable="false"
-          android:focusable="false"
-          android:gravity="center"
-          android:paddingLeft="10dp"
-          android:paddingRight="10dp"
-          android:text="50 / 50"
-          android:textColor="#2DD4BF"
-          android:textSize="9sp"
-          android:textStyle="bold" />
-
-      <TextView
-          android:layout_width="match_parent"
-          android:layout_height="wrap_content"
-          android:layout_above="@+id/cta_ab"
-          android:layout_marginBottom="8dp"
-          android:clickable="false"
-          android:focusable="false"
-          android:gravity="center"
-          android:text="ANDAR BAHAR"
-          android:textColor="#FFFFFF"
-          android:textSize="14sp"
-          android:textStyle="bold" />
-
-      <TextView
-          android:id="@+id/cta_ab"
-          android:layout_width="match_parent"
-          android:layout_height="30dp"
-          android:layout_alignParentBottom="true"
-          android:background="@drawable/casino_play_pill"
-          android:clickable="false"
-          android:focusable="false"
-          android:gravity="center"
-          android:text="PLAY  ›"
-          android:textColor="#FFFFFF"
-          android:textSize="11sp"
-          android:textStyle="bold" />
-  </RelativeLayout>
+      android:scaleType="fitXY"
+      android:src="@drawable/casino_poster_ab" />
         </LinearLayout>
 
         <RelativeLayout

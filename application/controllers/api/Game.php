@@ -33,6 +33,41 @@ class Game extends CI_Controller {
         return 0;
     }
 
+    private function cleanup_stale_table_users($keep_user_id = 0) {
+        $cutoff = date('Y-m-d H:i:s', time() - 180);
+        $stale = $this->db->select('tbl_table_user.table_id, tbl_table_user.user_id')
+            ->from('tbl_table_user')
+            ->join('tbl_users', 'tbl_users.id = tbl_table_user.user_id')
+            ->where('tbl_table_user.isDeleted', 0)
+            ->where('tbl_users.user_type', 0)
+            ->where('tbl_table_user.updated_date <', $cutoff)
+            ->get()
+            ->result();
+        foreach ($stale as $row) {
+            if ($keep_user_id && (string)$row->user_id === (string)$keep_user_id) continue;
+            $active = $this->Game_model->getActiveGameOnTable($row->table_id);
+            if (!empty($active) && (time() - strtotime($active->updated_date)) < 60) continue;
+            $this->Game_model->RemoveTableUser(['table_id' => $row->table_id, 'user_id' => $row->user_id]);
+        }
+        $orphans = $this->db->select('id')
+            ->from('tbl_users')
+            ->where('user_type', 0)
+            ->where('table_id !=', 0)
+            ->get()
+            ->result();
+        foreach ($orphans as $o) {
+            if ($keep_user_id && (string)$o->id === (string)$keep_user_id) continue;
+            $live_seat = $this->db->where('user_id', $o->id)
+                ->where('isDeleted', 0)
+                ->where('updated_date >=', $cutoff)
+                ->get('tbl_table_user')
+                ->row();
+            if (!$live_seat) {
+                $this->db->set('table_id', 0)->where('id', $o->id)->update('tbl_users');
+            }
+        }
+    }
+
     private function seat_bots($table_id, $target_count = 5) {
         $current = $this->Game_model->TableUser($table_id);
         if (count($current) >= 5) return;
@@ -101,26 +136,46 @@ class Game extends CI_Controller {
                 'added_date' => date('Y-m-d H:i:s'),
                 'updated_date' => date('Y-m-d H:i:s')
             ]);
+        } else {
+            $this->db->set('updated_date', date('Y-m-d H:i:s'))->where('id', $existing->id)->update('tbl_table_user');
+            $this->db->set('table_id', $table_id)->where('id', $user_id)->update('tbl_users');
         }
     }
 
     private function get_turn_user_id($game_id, $game_users, $last_log) {
-        $active_ids = [];
+        if (empty($game_users)) return '0';
+        $unpacked_count = 0;
+        $single_active = '0';
         foreach ($game_users as $gu) {
             if ((int)$gu->packed === 0) {
-                $active_ids[] = (string)$gu->user_id;
+                $unpacked_count++;
+                $single_active = (string)$gu->user_id;
             }
         }
-        if (empty($active_ids)) return '0';
-        if (count($active_ids) === 1) return $active_ids[0];
-        if (empty($last_log)) return $active_ids[0];
-        $last_uid = (string)$last_log->user_id;
-        $pos = array_search($last_uid, $active_ids, true);
-        if ($pos === false) return $active_ids[0];
-        return $active_ids[($pos + 1) % count($active_ids)];
+        if ($unpacked_count === 0) return '0';
+        if ($unpacked_count === 1) return $single_active;
+        $n = count($game_users);
+        $start_idx = 0;
+        if (!empty($last_log)) {
+            $last_uid = (string)$last_log->user_id;
+            foreach ($game_users as $idx => $gu) {
+                if ((string)$gu->user_id === $last_uid) {
+                    $start_idx = ($idx + 1) % $n;
+                    break;
+                }
+            }
+        }
+        for ($i = 0; $i < $n; $i++) {
+            $cand = $game_users[($start_idx + $i) % $n];
+            if ((int)$cand->packed === 0) {
+                return (string)$cand->user_id;
+            }
+        }
+        return $single_active;
     }
 
     private function resolve_show_winner($game_id, $active_users) {
+        if (empty($active_users)) return '0';
         $best = $active_users[0];
         $best_val = $this->Game_model->CardValue($best->card1, $best->card2, $best->card3);
         for ($i = 1; $i < count($active_users); $i++) {
@@ -160,6 +215,7 @@ class Game extends CI_Controller {
                 }
             }
         }
+        $this->cleanup_stale_table_users($user_id);
         $tables = $is_private ? [] : $this->Game_model->getCustomizeActiveTable($boot_value);
         $table_id = 0;
         if (!empty($tables)) {
@@ -169,8 +225,18 @@ class Game extends CI_Controller {
                 if ($tid && $members < 5) {
                     $existing_games = $this->Game_model->getAllGameOnTable($tid);
                     if (empty($existing_games)) {
-                        $table_id = $tid;
-                        break;
+                        $t_users = $this->Game_model->TableUser($tid);
+                        $has_offline_human = false;
+                        foreach ($t_users as $tu) {
+                            if ((int)$tu->user_type === 0 && (string)$tu->user_id !== (string)$user_id && (time() - strtotime($tu->updated_date)) > 45) {
+                                $has_offline_human = true;
+                                break;
+                            }
+                        }
+                        if (!$has_offline_human) {
+                            $table_id = $tid;
+                            break;
+                        }
                     }
                 }
             }
@@ -264,9 +330,11 @@ class Game extends CI_Controller {
         $starter_uid = $users[count($users) - 1]->user_id;
         foreach ($users as $uIdx => $uRow) {
             if (isset($uRow->user_type) && (int)$uRow->user_type === 0) {
-                $prevIdx = ($uIdx - 1 + count($users)) % count($users);
-                $starter_uid = $users[$prevIdx]->user_id;
-                break;
+                if (!$user_id || (string)$uRow->user_id === (string)$user_id) {
+                    $prevIdx = ($uIdx - 1 + count($users)) % count($users);
+                    $starter_uid = $users[$prevIdx]->user_id;
+                    break;
+                }
             }
         }
         $this->db->insert('tbl_game_log', [
@@ -283,6 +351,13 @@ class Game extends CI_Controller {
     public function status() {
         $user_id = $this->input->post('user_id');
         $table_id = $this->resolve_table_id($user_id);
+        if ($user_id && $table_id) {
+            $this->db->set('updated_date', date('Y-m-d H:i:s'))
+                ->where('table_id', $table_id)
+                ->where('user_id', $user_id)
+                ->where('isDeleted', 0)
+                ->update('tbl_table_user');
+        }
         $table = $table_id ? $this->Game_model->isTableAvail($table_id) : null;
         $boot = $table ? (float)$table->boot_value : 10;
         $table_users = $table_id ? $this->Game_model->TableUser($table_id) : [];
@@ -310,6 +385,9 @@ class Game extends CI_Controller {
                 $last_ts = $last_log ? strtotime($last_log->added_date) : strtotime($active->added_date);
                 $delay = ($last_log && (int)$last_log->action === 0) ? 4 : 2;
                 if (!empty($turn_user) && (int)$turn_user[0]->user_type === 1 && (time() - $last_ts) >= $delay) {
+                    if ((float)$turn_user[0]->wallet < ($boot * 5)) {
+                        $this->db->set('wallet', max(50000, $boot * 20))->where('id', $chaal_uid)->update('tbl_users');
+                    }
                     $unpacked = array_values(array_filter($game_users, function($g) { return (int)$g->packed === 0; }));
                     if (count($unpacked) <= 1) {
                         $this->resolve_show_winner($game_id, $unpacked);
@@ -329,6 +407,36 @@ class Game extends CI_Controller {
                         $chaal_uid = '0';
                     } else {
                         $chaal_uid = $this->get_turn_user_id($game_id, $game_users, $last_log);
+                    }
+                } elseif (!empty($turn_user) && (int)$turn_user[0]->user_type === 0) {
+                    $seat_row = $this->db->where('table_id', $table_id)->where('user_id', $chaal_uid)->where('isDeleted', 0)->get('tbl_table_user')->row();
+                    $is_offline_ghost = ($user_id && (string)$chaal_uid !== (string)$user_id) && (!$seat_row || (time() - strtotime($seat_row->updated_date)) > 20);
+                    $timeout_sec = $is_offline_ghost ? 3 : 31;
+                    if ((time() - $last_ts) >= $timeout_sec) {
+                        $this->Game_model->PackGame($chaal_uid, $game_id, 1);
+                        if ($is_offline_ghost) {
+                            $this->Game_model->RemoveTableUser(['table_id' => $table_id, 'user_id' => $chaal_uid]);
+                            $table_users = $table_id ? $this->Game_model->TableUser($table_id) : [];
+                        }
+                        $game_users = $this->Game_model->GameAllUser($game_id);
+                        $unpacked = array_values(array_filter($game_users, function($g) { return (int)$g->packed === 0; }));
+                        if (count($unpacked) === 1) {
+                            $this->resolve_show_winner($game_id, $unpacked);
+                        } elseif (empty($unpacked)) {
+                            $fallback_win = $user_id ?: $chaal_uid;
+                            $this->db->set('winner_id', $fallback_win)->set('updated_date', date('Y-m-d H:i:s'))->where('id', $game_id)->update('tbl_game');
+                        }
+                        $active = $this->Game_model->View($game_id);
+                        $game_users = $this->Game_model->GameAllUser($game_id);
+                        $log = $this->Game_model->GameLog($game_id, 1);
+                        $last_log = !empty($log) ? $log[0] : null;
+                        if ((int)$active->winner_id > 0) {
+                            $game_status = '2';
+                            $winner_id = (string)$active->winner_id;
+                            $chaal_uid = '0';
+                        } else {
+                            $chaal_uid = $this->get_turn_user_id($game_id, $game_users, $last_log);
+                        }
                     }
                 }
             }

@@ -1,15 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>
-        <shape android:shape="rectangle">
-  <gradient android:angle="135" android:startColor="#060A13" android:centerColor="#0E1729" android:endColor="#060A13" />
-        </shape>
+        <bitmap android:src="@drawable/bghome" android:gravity="fill" />
     </item>
-    <item android:top="74dp" android:bottom="10dp" android:left="10dp" android:right="10dp">
+    <item>
         <shape android:shape="rectangle">
-  <gradient android:angle="90" android:startColor="#08101E" android:centerColor="#0C1B2B" android:endColor="#091221" />
-  <corners android:radius="20dp" />
-  <stroke android:width="1dp" android:color="#26D4A843" />
+  <gradient android:angle="90" android:startColor="#88040812" android:centerColor="#4D070E1D" android:endColor="#99040812" />
         </shape>
     </item>
 </layer-list>
