@@ -14,4 +14,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: php -l application/controllers/api/Game.php && php tests/teen_patti_round.php
+      - run: php -l application/models/Game_model.php && php -l application/controllers/api/Game.php && php tests/teen_patti_round.php

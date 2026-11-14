@@ -28,13 +28,17 @@ class Game_model extends MY_Model
         return $Query->result();
     }
 
-    public function getCustomizeActiveTable($boot_value)
+    public function getCustomizeActiveTable($boot_value, $limits = [])
     {
         $this->db->select('tbl_users.table_id,COUNT(tbl_users.id) AS members');
         $this->db->from('tbl_users');
         $this->db->join('tbl_table', 'tbl_users.table_id=tbl_table.id');
         $this->db->where('tbl_users.isDeleted', false);
-        // $this->db->where('tbl_table.private', 2);
+        $this->db->where('tbl_table.private', 0);
+        $this->db->where('tbl_table.isDeleted', 0);
+        foreach ($limits as $field => $value) {
+            $this->db->where('tbl_table.' . $field, $value);
+        }
         $this->db->where('tbl_table.boot_value', $boot_value);
         $this->db->where('tbl_users.table_id!=', 0);
         $this->db->group_by('tbl_users.table_id');

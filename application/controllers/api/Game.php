@@ -289,7 +289,14 @@ class Game extends CI_Controller {
             }
         }
         $this->cleanup_stale_table_users($user_id);
-        $tables = $is_private ? [] : $this->Game_model->getCustomizeActiveTable($boot_value);
+        $master = $this->Game_model->getTableMaster($boot_value);
+        $rule = $master ? $master[0] : null;
+        $limits = [
+            'maximum_blind' => $rule->maximum_blind ?? 4,
+            'chaal_limit' => $rule->chaal_limit ?? ($boot_value * 128),
+            'pot_limit' => $rule->pot_limit ?? ($boot_value * 1024)
+        ];
+        $tables = $is_private ? [] : $this->Game_model->getCustomizeActiveTable($boot_value, $limits);
         $table_id = 0;
         if (!empty($tables)) {
             foreach ($tables as $t) {
@@ -315,13 +322,8 @@ class Game extends CI_Controller {
             }
         }
         if (!$table_id) {
-            $rules = $this->Game_model->getTableMaster($boot_value);
-            $rule = $rules ? $rules[0] : null;
-            $table_id = $this->Game_model->CreateTable([
+            $table_id = $this->Game_model->CreateTable($limits + [
                 'boot_value' => $boot_value,
-                'maximum_blind' => $rule->maximum_blind ?? 4,
-                'chaal_limit' => $rule->chaal_limit ?? ($boot_value * 128),
-                'pot_limit' => $rule->pot_limit ?? ($boot_value * 1024),
                 'private' => $is_private,
                 'added_date' => date('Y-m-d H:i:s'),
                 'updated_date' => date('Y-m-d H:i:s')
