@@ -435,8 +435,7 @@
                 android:layout_weight="1"
                 android:layout_marginLeft="3dp"
                 android:layout_marginRight="3dp"
-                android:background="@drawable/lobby_card_shell"
-                android:clipToOutline="true">
+                android:background="@drawable/lobby_card_shell">
 
                 <ImageView
                     android:id="@+id/imgpublicGame"
@@ -487,8 +486,7 @@
                 android:layout_weight="1"
                 android:layout_marginLeft="3dp"
                 android:layout_marginRight="3dp"
-                android:background="@drawable/lobby_card_shell"
-                android:clipToOutline="true">
+                android:background="@drawable/lobby_card_shell">
 
                 <ImageView
                     android:id="@+id/imgPrivategame"
@@ -539,8 +537,7 @@
                 android:layout_weight="1"
                 android:layout_marginLeft="3dp"
                 android:layout_marginRight="3dp"
-                android:background="@drawable/lobby_card_shell"
-                android:clipToOutline="true">
+                android:background="@drawable/lobby_card_shell">
 
                 <ImageView
                     android:id="@+id/ImgCustomePage"
@@ -591,8 +588,7 @@
                 android:layout_weight="1"
                 android:layout_marginLeft="3dp"
                 android:layout_marginRight="3dp"
-                android:background="@drawable/lobby_card_shell"
-                android:clipToOutline="true">
+                android:background="@drawable/lobby_card_shell">
 
                 <ImageView
                     android:id="@+id/ImgVariationGane"
@@ -643,8 +639,7 @@
                 android:layout_weight="1"
                 android:layout_marginLeft="3dp"
                 android:layout_marginRight="3dp"
-                android:background="@drawable/lobby_card_shell"
-                android:clipToOutline="true">
+                android:background="@drawable/lobby_card_shell">
 
                 <ImageView
                     android:id="@+id/iv_andher"
