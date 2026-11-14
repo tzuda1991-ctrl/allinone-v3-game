@@ -242,7 +242,15 @@ class Game extends CI_Controller {
         $hand = $this->Game_model->GameUserCard($game->id, $player->id);
         if (!$hand) return;
         $turns = $this->Game_model->ChaalCount($game->id, $player->id);
-        $look_after = ($player->id + $game->id) % 3;
+        // Spread reveals across chairs, even when bot account IDs have the same remainder.
+        $seats = $this->Game_model->TableUser($table->id);
+        $look_after = 1;
+        foreach ($seats as $seat) {
+            if ((string)$seat->user_id === (string)$player->id) {
+                $look_after = ((int)$seat->seat_position + (int)$game->id) % 3;
+                break;
+            }
+        }
         if ($table->maximum_blind > 0) $look_after = min($look_after, $table->maximum_blind);
         if (!$hand->seen && $turns >= $look_after) {
             $this->Game_model->getMyCards($game->id, $player->id);

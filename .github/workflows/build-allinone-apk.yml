@@ -208,3 +208,23 @@ jobs:
             ${{ steps.locate.outputs.dir }}/app/build/outputs/apk/debug/*.apk
             ${{ steps.locate.outputs.dir }}/app/build/outputs/apk/release/*.apk
           retention-days: 30
+
+      - name: Compile Rummy launch check
+        working-directory: ${{ steps.locate.outputs.dir }}
+        run: ./gradlew assembleDebugAndroidTest --no-daemon
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Enable emulator acceleration
+        run: sudo chmod 666 /dev/kvm
+
+      - name: Open both Rummy tables on Android
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          arch: x86_64
+          disable-animations: true
+          script: bash tests/rummy_launch.sh

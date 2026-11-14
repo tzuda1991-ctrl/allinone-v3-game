@@ -350,7 +350,15 @@ public class ActiveTables_BF extends BottomSheetDialogFragment {
                     if(game_tag.equals(RUMMY5)|| game_tag.equals(RUMMY2))
                     {
                          min_try = Float.parseFloat(usermodel.getChaalLimit());
-                        float wallet_amount = Float.parseFloat(prefs.getString("wallet","0"));
+                        Object cachedWallet = prefs.getAll().get("wallet");
+                        String walletText = cachedWallet == null ? "" : cachedWallet.toString().replace(",", "").trim();
+                        float wallet_amount;
+                        try {
+                            wallet_amount = Float.parseFloat(walletText);
+                        } catch (NumberFormatException ignored) {
+                            Toast.makeText(context, "Refresh your wallet and try again.", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
 
                         if(min_try > wallet_amount)
                         {

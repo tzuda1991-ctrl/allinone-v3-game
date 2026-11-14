@@ -4,6 +4,15 @@ class CI_Controller { public $Game_model; public $Setting_model; }
 require __DIR__ . '/../application/controllers/api/Game.php';
 class MemoryRound {
     public $last;
+    public $hand;
+    public $turns = 0;
+    public $bets = [];
+    function TableUser($id) { return [(object)['seat_position'=>3,'user_id'=>9]]; }
+    function GameUserCard($game, $user) { return $this->hand; }
+    function ChaalCount($game, $user) { return $this->turns; }
+    function getMyCards($game, $user) { $this->hand->seen = 1; }
+    function Chaal($game, $amount, $user) { $this->bets[] = $amount; $this->turns++; }
+
     public $game;
     public $players;
     public $winner;
@@ -61,3 +70,19 @@ foreach ([50, 100] as $boot) {
     $settle->invoke($controller,3,$table);
     check_rule($model->winner === 2, 'Selected table pot cap');
 }
+
+$bot = new ReflectionMethod(Game::class, 'bot_turn');
+$bot->setAccessible(true);
+$model->last = null;
+$table->id = 1;
+$table->maximum_blind = 4;
+$table->boot_value = 50;
+$game->id = 4;
+$game->amount = 250;
+$model->winner = null;
+$model->hand = (object)['seen'=>0,'card1'=>3,'card2'=>2,'card3'=>1];
+$actor = (object)['id'=>9,'wallet'=>1000];
+$bot->invoke($controller, $game, $table, $actor);
+check_rule(!$model->hand->seen && $model->bets[0] == 50, 'First blind stake');
+$bot->invoke($controller, $game, $table, $actor);
+check_rule($model->hand->seen && $model->bets[1] >= 100, 'Bot sees before paying seen stake');
