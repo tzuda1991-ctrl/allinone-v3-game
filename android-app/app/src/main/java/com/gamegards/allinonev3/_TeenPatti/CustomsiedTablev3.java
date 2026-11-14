@@ -3589,7 +3589,7 @@ public class CustomsiedTablev3 extends AppCompatActivity {
 
                             if ("1".equals(jsonObject.optString("game_status"))) {
                                 renderStake();
-                                imgpl1show.setVisibility(playercount == 2 ? View.VISIBLE : View.GONE);
+                                imgpl1show.setVisibility(m == 2 ? View.VISIBLE : View.GONE);
                                 imgpl1show.setImageResource(R.drawable.casino_action_show);
                             }
 
@@ -4201,10 +4201,9 @@ public class CustomsiedTablev3 extends AppCompatActivity {
             @Override
             protected Map<String, String> getParams() {
                 Map<String, String> params = new HashMap<String, String>();
+                params.put("game_id", requestedRound);
                 SharedPreferences prefs = getSharedPreferences(MY_PREFS_NAME, MODE_PRIVATE);
-                //params.put("game_id", requestedRound);
-                params.put("user_id",prefs.getString("user_id", ""));
-                params.put("user_id", chaak_user_id);
+                params.put("user_id", prefs.getString("user_id", ""));
                 //if (type.equals("1")){
                 params.put("token", prefs.getString("token", ""));
                 params.put("timeout", type);
@@ -4293,8 +4292,6 @@ public class CustomsiedTablev3 extends AppCompatActivity {
 
                                 //SharedPreferences prefs = getSharedPreferences(MY_PREFS_NAME,
                                 // MODE_PRIVATE);
-                                // params.put("game_id", requestedRound);
-                params.put("user_id", prefs.getString("user_id", ""));
                                 //makeshowchaalamountfloat(prefs.getString("user_id", ""));
 
 
@@ -4343,6 +4340,7 @@ public class CustomsiedTablev3 extends AppCompatActivity {
             @Override
             protected Map<String, String> getParams() {
                 Map<String, String> params = new HashMap<String, String>();
+                params.put("game_id", requestedRound);
                 SharedPreferences prefs = getSharedPreferences(MY_PREFS_NAME, MODE_PRIVATE);
                 params.put("user_id", prefs.getString("user_id", ""));
                 params.put("plus", sentamounttype);
@@ -4395,8 +4393,6 @@ public class CustomsiedTablev3 extends AppCompatActivity {
 
                                 // SharedPreferences prefs = getSharedPreferences(MY_PREFS_NAME,
                                 //   MODE_PRIVATE);
-                                // params.put("game_id", requestedRound);
-                params.put("user_id", prefs.getString("user_id", ""));
                                 //makeshowchaalamountfloat(prefs.getString("user_id", ""));
                                 PlaySaund(R.raw.teenpattichipstotable);
                                 txt_coin_to_girl_player1.setText(Variables.CURRENCY_SYMBOL + table_amount);
@@ -4425,6 +4421,7 @@ public class CustomsiedTablev3 extends AppCompatActivity {
             @Override
             protected Map<String, String> getParams() {
                 Map<String, String> params = new HashMap<String, String>();
+                params.put("game_id", requestedRound);
                 SharedPreferences prefs = getSharedPreferences(MY_PREFS_NAME, MODE_PRIVATE);
                 params.put("user_id", prefs.getString("user_id", ""));
                 params.put("token", prefs.getString("token", ""));
