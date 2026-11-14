@@ -17,7 +17,7 @@ public class RummyLaunchTest {
             intent.putExtra("sel_table", "80.00");
             intent.putExtra("min_entry", 100f);
             if (twoPlayers) intent.putExtra("player2", "player2");
-            Activity screen = instrumentation.startActivitySync(intent);
+            final Activity screen = instrumentation.startActivitySync(intent);
             instrumentation.waitForIdleSync();
             assertNotNull(screen.findViewById(R.id.ivallcard));
             instrumentation.runOnMainSync(new Runnable() {
