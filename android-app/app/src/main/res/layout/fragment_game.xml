@@ -1,39 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    >
+    android:background="@android:color/transparent"
+    android:paddingLeft="12dp"
+    android:paddingRight="12dp"
+    android:paddingTop="4dp"
+    android:paddingBottom="8dp">
 
-
-    <LinearLayout
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rec_gameslist"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_below="@+id/rlt_header"
-        >
-
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/rec_gameslist"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:padding="4dp"
-            android:layout_marginBottom="5dp"
-            />
-
-
-    </LinearLayout>
+        android:layout_height="match_parent"
+        android:clipToPadding="false"
+        android:paddingBottom="8dp" />
 
     <TextView
         android:id="@+id/txtNodata"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="No Data Available"
         android:layout_centerInParent="true"
-        android:textColor="@color/white"
+        android:text="No Rooms Available"
+        android:textColor="#F5D06F"
+        android:textSize="16sp"
         android:textStyle="bold"
-        android:visibility="gone"
-        android:layout_marginLeft="5dp"
-        />
-
+        android:visibility="gone" />
 </RelativeLayout>

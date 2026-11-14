@@ -560,8 +560,8 @@ public class PublicTable_New extends AppCompatActivity {
         RelativeLayout rltParentLayout = findViewById(R.id.rltParentLayout);
         ImageView imgTable = findViewById(R.id.imgTable);
 
-        SetBackgroundImageAsDisplaySize(this,rltParentLayout,R.drawable.bgnew1);
-        Glide.with(this).load(R.drawable.table_v5).into(imgTable);
+        SetBackgroundImageAsDisplaySize(this,rltParentLayout,R.drawable.casino_table_backdrop);
+        imgTable.setImageResource(R.drawable.casino_emerald_table);
 
         helvatikaboldround = Typeface.createFromAsset(getAssets(), "fonts/helvetica-rounded-bold-5871d05ead8de.otf");
         helvatikabold = Typeface.createFromAsset(getAssets(), "fonts/Helvetica-Bold.ttf");

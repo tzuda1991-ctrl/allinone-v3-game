@@ -325,8 +325,12 @@ public class Funtions {
         Display display = context.getWindowManager().getDefaultDisplay();
         Point size = new Point();
         display.getSize(size);
-        Bitmap bmp = Bitmap.createScaledBitmap(BitmapFactory.decodeResource(
-                context.getResources(),drawable),size.x,size.y,true);
+        Bitmap decoded = BitmapFactory.decodeResource(context.getResources(), drawable);
+        if (decoded == null) {
+            if (relativeLayout != null) relativeLayout.setBackgroundResource(drawable);
+            return;
+        }
+        Bitmap bmp = Bitmap.createScaledBitmap(decoded, size.x, size.y, true);
 
         ImageView imageview = new ImageView(context);
         RelativeLayout relativelayout = relativeLayout;

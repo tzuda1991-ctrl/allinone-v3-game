@@ -1,157 +1,152 @@
 <?xml version="1.0" encoding="utf-8"?>
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    xmlns:app="http://schemas.android.com/apk/res-auto">
+    android:paddingTop="4dp"
+    android:paddingBottom="4dp">
 
     <androidx.cardview.widget.CardView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:cardUseCompatPadding="true"
-        app:cardCornerRadius="5dp"
-        app:cardBackgroundColor="@color/blue"
-        >
+        app:cardBackgroundColor="@android:color/transparent"
+        app:cardCornerRadius="14dp"
+        app:cardElevation="6dp"
+        app:cardUseCompatPadding="true">
 
         <RelativeLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginLeft="10dp"
-                android:background="@color/blue"
-            android:padding="5dp"
-            >
+  android:layout_width="match_parent"
+  android:layout_height="wrap_content"
+  android:background="@drawable/casino_room_card"
+  android:paddingLeft="18dp"
+  android:paddingRight="18dp"
+  android:paddingTop="14dp"
+  android:paddingBottom="14dp">
 
-            <TextView
-                android:id="@+id/txtroomid"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Room 1"
-                android:textSize="16sp"
-                android:textColor="@color/white"
-                android:textStyle="bold"
-                android:gravity="center"
-                android:layout_centerHorizontal="true"
-                />
+  <TextView
+      android:id="@+id/txtroomid"
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:layout_alignParentLeft="true"
+      android:layout_alignParentTop="true"
+      android:text="Room 1"
+      android:textColor="#F8FAFC"
+      android:textSize="18sp"
+      android:textStyle="bold" />
 
-            <TextView
-                android:id="@+id/txtonline"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="19 Online"
-                android:layout_alignParentRight="true"
-                android:layout_marginRight="10dp"
-                android:textColor="@color/lghtAccent"
-                />
+  <LinearLayout
+      android:layout_width="wrap_content"
+      android:layout_height="24dp"
+      android:layout_alignParentRight="true"
+      android:layout_alignParentTop="true"
+      android:background="@drawable/casino_online_pill"
+      android:gravity="center_vertical"
+      android:orientation="horizontal"
+      android:paddingLeft="10dp"
+      android:paddingRight="10dp">
 
-            <Button
-                android:id="@+id/btnplay"
-                android:layout_marginTop="5dp"
-                android:layout_below="@+id/txtonline"
-                android:layout_width="100dp"
-                android:layout_height="40dp"
-                android:background="@drawable/withdraw_btn"
-                android:text="PLAY"
-                android:textSize="18sp"
-                android:textColor="@color/white"
-                android:textStyle="bold"
-                android:layout_alignParentRight="true"
-                android:foreground="?selectableItemBackground"
-                />
+      <View
+          android:layout_width="7dp"
+          android:layout_height="7dp"
+          android:layout_marginRight="6dp"
+          android:background="@drawable/casino_online_dot" />
 
-            <LinearLayout
-                android:id="@+id/lnrtable"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:layout_below="@+id/txtonline"
-                android:layout_marginTop="5dp"
-                >
+      <TextView
+          android:id="@+id/txtonline"
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content"
+          android:text="10 Online"
+          android:textColor="#34D399"
+          android:textSize="12sp"
+          android:textStyle="bold" />
+  </LinearLayout>
 
-                <LinearLayout
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    >
+  <LinearLayout
+      android:id="@+id/lnrtable"
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:layout_below="@+id/txtroomid"
+      android:layout_marginTop="10dp"
+      android:gravity="center_vertical"
+      android:orientation="horizontal">
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Table Min:"
-                        android:textColor="@color/lghtAccent"
-                        />
+      <LinearLayout
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content"
+          android:gravity="center_vertical"
+          android:orientation="horizontal"
+          android:layout_marginRight="28dp">
 
-                    <pl.droidsonroids.gif.GifImageView
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:src="@drawable/gif_ruppe_"
-                        android:background="@drawable/black_transparent"
-                        android:padding="5dp"
-                        android:layout_marginLeft="10dp"
-                        />
+          <TextView
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:text="MIN BET"
+              android:textColor="#94A3B8"
+              android:textSize="11sp"
+              android:textStyle="bold" />
 
-                    <TextView
-                        android:id="@+id/txtmin"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="1"
-                        android:textColor="@color/white"
-                        android:textStyle="bold"
-                        android:layout_marginLeft="5dp"
-                        />
+          <ImageView
+              android:layout_width="16dp"
+              android:layout_height="16dp"
+              android:layout_marginLeft="8dp"
+              android:src="@drawable/ic_vec_gold_chip" />
 
+          <TextView
+              android:id="@+id/txtmin"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:layout_marginLeft="5dp"
+              android:text="1"
+              android:textColor="#F8FAFC"
+              android:textSize="15sp"
+              android:textStyle="bold" />
+      </LinearLayout>
 
-                </LinearLayout>
+      <LinearLayout
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content"
+          android:gravity="center_vertical"
+          android:orientation="horizontal">
 
-                <LinearLayout
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginTop="7dp"
-                    >
+          <TextView
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:text="MAX BET"
+              android:textColor="#94A3B8"
+              android:textSize="11sp"
+              android:textStyle="bold" />
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Table Max:"
-                        android:textColor="@color/lghtAccent"
-                        />
+          <ImageView
+              android:layout_width="16dp"
+              android:layout_height="16dp"
+              android:layout_marginLeft="8dp"
+              android:src="@drawable/ic_vec_gold_chip" />
 
-                    <pl.droidsonroids.gif.GifImageView
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:src="@drawable/gif_ruppe_"
-                        android:background="@drawable/black_transparent"
-                        android:padding="5dp"
-                        android:layout_marginLeft="10dp"
-                        />
+          <TextView
+              android:id="@+id/txtmax"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:layout_marginLeft="5dp"
+              android:text="7500"
+              android:textColor="#F5D06F"
+              android:textSize="15sp"
+              android:textStyle="bold" />
+      </LinearLayout>
+  </LinearLayout>
 
-                    <TextView
-                        android:id="@+id/txtmax"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="1"
-                        android:textColor="@color/white"
-                        android:layout_marginLeft="5dp"
-                        android:textStyle="bold"
-                        />
-
-
-                </LinearLayout>
-
-
-            </LinearLayout>
-
-
-            <View
-                android:layout_below="@+id/lnrtable"
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:layout_marginTop="5dp"
-                android:background="@color/blue_light"
-                />
-
+  <Button
+      android:id="@+id/btnplay"
+      android:layout_width="112dp"
+      android:layout_height="40dp"
+      android:layout_alignParentRight="true"
+      android:layout_below="@+id/txtroomid"
+      android:layout_marginTop="4dp"
+      android:background="@drawable/casino_btn_emerald"
+      android:foreground="?selectableItemBackground"
+      android:text="PLAY  ›"
+      android:textColor="#FFFFFF"
+      android:textSize="14sp"
+      android:textStyle="bold" />
         </RelativeLayout>
-
-
     </androidx.cardview.widget.CardView>
-
 </RelativeLayout>
